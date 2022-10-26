@@ -8,7 +8,10 @@ import transformers
 import torch
 import torchmetrics
 import pytorch_lightning as pl
+from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.callbacks import ModelCheckpoint
 
+import wandb
 
 class Dataset(torch.utils.data.Dataset):
     def __init__(self, inputs, targets=[]):
@@ -156,7 +159,7 @@ class Model(pl.LightningModule):
     def predict_step(self, batch, batch_idx):
         x = batch
         logits = self(x)
-
+        
         return logits.squeeze()
 
     def configure_optimizers(self):
@@ -169,9 +172,10 @@ if __name__ == '__main__':
     # 터미널 실행 예시 : python3 run.py --batch_size=64 ...
     # 실행 시 '--batch_size=64' 같은 인자를 입력하지 않으면 default 값이 기본으로 실행됩니다
     parser = argparse.ArgumentParser()
+    parser.add_argument('--stage', default='predict', type=str) # fit / test / predict
     parser.add_argument('--model_name', default='klue/roberta-small', type=str)
-    parser.add_argument('--batch_size', default=16, type=int)
-    parser.add_argument('--max_epoch', default=1, type=int)
+    parser.add_argument('--batch_size', default=15, type=int)
+    parser.add_argument('--max_epoch', default=20, type=int)
     parser.add_argument('--shuffle', default=True)
     parser.add_argument('--learning_rate', default=1e-5, type=float)
     parser.add_argument('--train_path', default='/opt/ml/data/train.csv')
@@ -180,17 +184,44 @@ if __name__ == '__main__':
     parser.add_argument('--predict_path', default='/opt/ml/data/test.csv')
     args = parser.parse_args(args=[])
 
-    # dataloader와 model을 생성합니다.
+    try:
+        wandb.login(key='4c0a01eaa2bd589d64c5297c5bc806182d126350')
+        wandb.init(project="project", name= f"{args.model_name}")
+    except:
+        anony = "must"
+        print('If you want to use your W&B account, go to Add-ons -> Secrets and provide your W&B access token. Use the Label name as wandb_api. \nGet your W&B access token from here: https://wandb.ai/authorize')
+    
+    wandb_logger = WandbLogger('project')
+    
+    # dataloader
     dataloader = Dataloader(args.model_name, args.batch_size, args.shuffle, args.train_path, args.dev_path,
                             args.test_path, args.predict_path)
+    
+    # model 
+    # ModelCheckpoint (https://pytorch-lightning.readthedocs.io/en/latest/api/pytorch_lightning.callbacks.ModelCheckpoint.html?highlight=modelcheckpoint)
     model = Model(args.model_name, args.learning_rate)
-
-    # gpu가 없으면 'gpus=0'을, gpu가 여러개면 'gpus=4'처럼 사용하실 gpu의 개수를 입력해주세요
-    trainer = pl.Trainer(gpus=1, max_epochs=args.max_epoch, log_every_n_steps=1)
+    checkpoint_callback = ModelCheckpoint(
+                            dirpath='./models/',
+                            filename='model-{epoch:02d}-{val_loss:.2f}', # model.ckpt
+                            every_n_epochs=1
+                        )
+    
+    # gpu가 없으면 'gpus=0'을, gpu가 여러개면 'gpus=4'처럼 사용하실 gpu의 개수를 입력해주세요    
+    trainer = pl.Trainer(
+        gpus=1, 
+        max_epochs=args.max_epoch, 
+        logger=wandb_logger,
+        log_every_n_steps=1, 
+        callbacks=[checkpoint_callback]
+    )
 
     # Train part
     trainer.fit(model=model, datamodule=dataloader)
+    
+    # Test part
     trainer.test(model=model, datamodule=dataloader)
-
+    
     # 학습이 완료된 모델을 저장합니다.
-    torch.save(model, 'model.pt')
+    torch.save(model, 'model-epoch-end.ckpt')
+    
+    wandb.finish()
