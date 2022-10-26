@@ -8,7 +8,9 @@ import transformers
 import torch
 import torchmetrics
 import pytorch_lightning as pl
+from pytorch_lightning.loggers import WandbLogger
 
+import wandb
 
 class Dataset(torch.utils.data.Dataset):
     def __init__(self, inputs, targets=[]):
@@ -145,7 +147,12 @@ class Model(pl.LightningModule):
 
         self.log("val_pearson", torchmetrics.functional.pearson_corrcoef(logits.squeeze(), y.squeeze()))
 
-        return loss
+        return {'val_loss': loss}
+    
+    def validation_epoch_end(self, val_loss):
+        torch.save
+        
+        return 
 
     def test_step(self, batch, batch_idx):
         x, y = batch
@@ -171,7 +178,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_name', default='klue/roberta-small', type=str)
     parser.add_argument('--batch_size', default=16, type=int)
-    parser.add_argument('--max_epoch', default=1, type=int)
+    parser.add_argument('--max_epoch', default=20, type=int)
     parser.add_argument('--shuffle', default=True)
     parser.add_argument('--learning_rate', default=1e-5, type=float)
     parser.add_argument('--train_path', default='/opt/ml/data/train.csv')
@@ -180,17 +187,30 @@ if __name__ == '__main__':
     parser.add_argument('--predict_path', default='/opt/ml/data/test.csv')
     args = parser.parse_args(args=[])
 
+    try:
+        wandb.login(key='api-key')
+        wandb.init(project="project", name= f"{args.model_name}")
+    except:
+        anony = "must"
+        print('If you want to use your W&B account, go to Add-ons -> Secrets and provide your W&B access token. Use the Label name as wandb_api. \n \
+              Get your W&B access token from here: https://wandb.ai/authorize')
+    
+    wandb_logger = WandbLogger('project')
+    
+
     # dataloader와 model을 생성합니다.
     dataloader = Dataloader(args.model_name, args.batch_size, args.shuffle, args.train_path, args.dev_path,
                             args.test_path, args.predict_path)
     model = Model(args.model_name, args.learning_rate)
 
-    # gpu가 없으면 'gpus=0'을, gpu가 여러개면 'gpus=4'처럼 사용하실 gpu의 개수를 입력해주세요
-    trainer = pl.Trainer(gpus=1, max_epochs=args.max_epoch, log_every_n_steps=1)
+    # gpu가 없으면 'gpus=0'을, gpu가 여러개면 'gpus=4'처럼 사용하실 gpu의 개수를 입력해주세요    
+    trainer = pl.Trainer(gpus=1, max_epochs=args.max_epoch, log_every_n_steps=1, logger=wandb_logger)
 
     # Train part
     trainer.fit(model=model, datamodule=dataloader)
     trainer.test(model=model, datamodule=dataloader)
 
     # 학습이 완료된 모델을 저장합니다.
-    torch.save(model, 'model.pt')
+    torch.save(model, 'model_epoch_end.pt')
+    
+    wandb.finish()
