@@ -1,0 +1,1 @@
+/opt/conda/envs/venv/bin/python3 inference.py

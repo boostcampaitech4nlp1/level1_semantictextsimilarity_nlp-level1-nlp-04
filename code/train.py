@@ -9,6 +9,20 @@ import torch
 import torchmetrics
 import pytorch_lightning as pl
 
+from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning import Trainer
+from pytorch_lightning.callbacks import ModelCheckpoint
+
+import re
+
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+
+
+
+
+
 
 class Dataset(torch.utils.data.Dataset):
     def __init__(self, inputs, targets=[]):
@@ -99,16 +113,16 @@ class Dataloader(pl.LightningDataModule):
             self.predict_dataset = Dataset(predict_inputs, [])
 
     def train_dataloader(self):
-        return torch.utils.data.DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=args.shuffle)
+        return torch.utils.data.DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=args.shuffle, num_workers=8)
 
     def val_dataloader(self):
-        return torch.utils.data.DataLoader(self.val_dataset, batch_size=self.batch_size)
+        return torch.utils.data.DataLoader(self.val_dataset, batch_size=self.batch_size, num_workers=8)
 
     def test_dataloader(self):
-        return torch.utils.data.DataLoader(self.test_dataset, batch_size=self.batch_size)
+        return torch.utils.data.DataLoader(self.test_dataset, batch_size=self.batch_size, num_workers=8)
 
     def predict_dataloader(self):
-        return torch.utils.data.DataLoader(self.predict_dataset, batch_size=self.batch_size)
+        return torch.utils.data.DataLoader(self.predict_dataset, batch_size=self.batch_size, num_workers=8)
 
 
 class Model(pl.LightningModule):
@@ -123,10 +137,12 @@ class Model(pl.LightningModule):
         self.plm = transformers.AutoModelForSequenceClassification.from_pretrained(
             pretrained_model_name_or_path=model_name, num_labels=1)
         # Loss 계산을 위해 사용될 L1Loss를 호출합니다.
-        self.loss_func = torch.nn.L1Loss()
+        # [edited] -> MSE loss로 변경
+        self.loss_func = torch.nn.MSELoss()
 
     def forward(self, x):
         x = self.plm(x)['logits']
+
         return x
 
     def training_step(self, batch, batch_idx):
@@ -169,16 +185,25 @@ if __name__ == '__main__':
     # 터미널 실행 예시 : python3 run.py --batch_size=64 ...
     # 실행 시 '--batch_size=64' 같은 인자를 입력하지 않으면 default 값이 기본으로 실행됩니다
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model_name', default='klue/roberta-small', type=str)
+    parser.add_argument('--model_name', default='klue/roberta-base', type=str)
+    # bespin-global/klue-sroberta-base-continue-learning-by-mnr
+    # klue/roberta-large -> memory error 발생
+    # klue/roberta-small
+    # klue/roberta-base
     parser.add_argument('--batch_size', default=16, type=int)
-    parser.add_argument('--max_epoch', default=1, type=int)
+    parser.add_argument('--max_epoch', default=10, type=int)
     parser.add_argument('--shuffle', default=True)
     parser.add_argument('--learning_rate', default=1e-5, type=float)
-    parser.add_argument('--train_path', default='/opt/ml/data/train.csv')
-    parser.add_argument('--dev_path', default='/opt/ml/data/dev.csv')
-    parser.add_argument('--test_path', default='/opt/ml/data/dev.csv')
-    parser.add_argument('--predict_path', default='/opt/ml/data/test.csv')
+    parser.add_argument('--train_path', default='../data/train.csv')
+    parser.add_argument('--dev_path', default='../data/dev.csv')
+    parser.add_argument('--test_path', default='../data/dev.csv')
+    parser.add_argument('--predict_path', default='../data/test.csv')
     args = parser.parse_args(args=[])
+
+    # [added]
+    # wandb_logger = WandbLogger(project="boostcamp_level_1")
+    wandb_logger = WandbLogger(name=f'{args.model_name}+{args.batch_size}+{args.learning_rate}',project="boostcamp_level_1")
+
 
     # dataloader와 model을 생성합니다.
     dataloader = Dataloader(args.model_name, args.batch_size, args.shuffle, args.train_path, args.dev_path,
@@ -186,11 +211,16 @@ if __name__ == '__main__':
     model = Model(args.model_name, args.learning_rate)
 
     # gpu가 없으면 'gpus=0'을, gpu가 여러개면 'gpus=4'처럼 사용하실 gpu의 개수를 입력해주세요
-    trainer = pl.Trainer(gpus=1, max_epochs=args.max_epoch, log_every_n_steps=1)
+    # [edited] - add logger=wandb_logger / precision = 16
+    checkpoint_callback = ModelCheckpoint(dirpath="/opt/ml/models/", save_top_k=2, monitor="val_loss")
+    trainer = pl.Trainer(gpus=1, max_epochs=args.max_epoch, log_every_n_steps=1, logger=wandb_logger, precision=16, callbacks=[checkpoint_callback])
+
 
     # Train part
     trainer.fit(model=model, datamodule=dataloader)
     trainer.test(model=model, datamodule=dataloader)
+    
+    print(checkpoint_callback.best_model_path)
 
     # 학습이 완료된 모델을 저장합니다.
-    torch.save(model, 'model.pt')
+    torch.save(model, f'/opt/ml/models/model_{re.sub("/", "-", args.model_name)}.pt')
