@@ -148,7 +148,12 @@ class Model(pl.LightningModule):
 
         self.log("val_pearson", torchmetrics.functional.pearson_corrcoef(logits.squeeze(), y.squeeze()))
 
-        return loss
+        return {'val_loss': loss}
+    
+    def validation_epoch_end(self, val_loss):
+        torch.save
+        
+        return 
 
     def test_step(self, batch, batch_idx):
         x, y = batch
@@ -174,7 +179,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--stage', default='predict', type=str) # fit / test / predict
     parser.add_argument('--model_name', default='klue/roberta-small', type=str)
-    parser.add_argument('--batch_size', default=15, type=int)
+    parser.add_argument('--batch_size', default=16, type=int)
     parser.add_argument('--max_epoch', default=20, type=int)
     parser.add_argument('--shuffle', default=True)
     parser.add_argument('--learning_rate', default=1e-5, type=float)
@@ -185,15 +190,17 @@ if __name__ == '__main__':
     args = parser.parse_args(args=[])
 
     try:
-        wandb.login(key='4c0a01eaa2bd589d64c5297c5bc806182d126350')
+        wandb.login(key='api-key')
         wandb.init(project="project", name= f"{args.model_name}")
     except:
         anony = "must"
-        print('If you want to use your W&B account, go to Add-ons -> Secrets and provide your W&B access token. Use the Label name as wandb_api. \nGet your W&B access token from here: https://wandb.ai/authorize')
+        print('If you want to use your W&B account, go to Add-ons -> Secrets and provide your W&B access token. Use the Label name as wandb_api. \n \
+              Get your W&B access token from here: https://wandb.ai/authorize')
     
     wandb_logger = WandbLogger('project')
     
-    # dataloader
+
+    # dataloader와 model을 생성합니다.
     dataloader = Dataloader(args.model_name, args.batch_size, args.shuffle, args.train_path, args.dev_path,
                             args.test_path, args.predict_path)
     
