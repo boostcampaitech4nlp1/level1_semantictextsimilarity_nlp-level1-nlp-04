@@ -1,4 +1,3 @@
-import re
 import argparse
 
 import pandas as pd
@@ -10,8 +9,7 @@ import torch
 import torchmetrics
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
-from pytorch_lightning.callbacks import ModelCheckpoint
-from pytorch_lightning.callbacks import EarlyStopping
+from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 
 import wandb
 
@@ -58,12 +56,9 @@ class Dataloader(pl.LightningDataModule):
 
     def tokenizing(self, dataframe):
         data = []
-        
         for idx, item in tqdm(dataframe.iterrows(), desc='tokenizing', total=len(dataframe)):
             # 두 입력 문장을 [SEP] 토큰으로 이어붙여서 전처리합니다.
-            text = '[SEP]'.join(
-                [re.sub(r'[^\uAC00-\uD7A30-9a-zA-Z ]', '', item[text_column]) for text_column in self.text_columns]
-            )
+            text = '[SEP]'.join([item[text_column] for text_column in self.text_columns])
             outputs = self.tokenizer(text, add_special_tokens=True, padding='max_length', truncation=True)
             data.append(outputs['input_ids'])
         return data
@@ -108,7 +103,7 @@ class Dataloader(pl.LightningDataModule):
             self.predict_dataset = Dataset(predict_inputs, [])
 
     def train_dataloader(self):
-        return torch.utils.data.DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=args.shuffle, num_workers=8)
+        return torch.utils.data.DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=args.shuffle)
 
     def val_dataloader(self):
         return torch.utils.data.DataLoader(self.val_dataset, batch_size=self.batch_size)
@@ -127,14 +122,14 @@ class Model(pl.LightningModule):
 
         self.model_name = model_name
         self.lr = lr
-        self.norm: int = norm
+        self.norm = norm
+
 
         # 사용할 모델을 호출합니다.
         self.plm = transformers.AutoModelForSequenceClassification.from_pretrained(
             pretrained_model_name_or_path=model_name, num_labels=1)
         
-        # loss
-        if self.norm < 2:
+        if norm < 2:
             self.criterion = torch.nn.L1Loss()
         else:
             self.criterion = torch.nn.MSELoss()
@@ -148,6 +143,7 @@ class Model(pl.LightningModule):
         logits = self(x)
         loss = self.criterion(logits, y.float())
         self.log("train_loss", loss)
+
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -162,7 +158,7 @@ class Model(pl.LightningModule):
     def test_step(self, batch, batch_idx):
         x, y = batch
         logits = self(x)
-
+        
         self.log("test_pearson", torchmetrics.functional.pearson_corrcoef(logits.squeeze(), y.squeeze()))
 
     def predict_step(self, batch, batch_idx):
@@ -173,7 +169,6 @@ class Model(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
-        # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=300, gamma=0.1)
         return optimizer
 
 
@@ -182,10 +177,10 @@ if __name__ == '__main__':
     # 터미널 실행 예시 : python3 run.py --batch_size=64 ...
     # 실행 시 '--batch_size=64' 같은 인자를 입력하지 않으면 default 값이 기본으로 실행됩니다
     parser = argparse.ArgumentParser()
-    parser.add_argument('--stage', default='fit', type=str) # fit / test / predict
-    parser.add_argument('--model_name', default='klue/bert-base', type=str)
+    parser.add_argument('--stage', default='predict', type=str) # fit / test / predict
+    parser.add_argument('--model_name', default='klue/roberta-base', type=str)
     parser.add_argument('--batch_size', default=32, type=int)
-    parser.add_argument('--max_epoch', default=100, type=int)
+    parser.add_argument('--max_epoch', default=10, type=int)
     parser.add_argument('--shuffle', default=True)
     parser.add_argument('--norm', default=1, type=int)
     parser.add_argument('--learning_rate', default=1e-5, type=float)
@@ -201,49 +196,66 @@ if __name__ == '__main__':
         anony = "must"
         print('If you want to use your W&B account, go to Add-ons -> Secrets and provide your W&B access token. Use the Label name as wandb_api. \nGet your W&B access token from here: https://wandb.ai/authorize')
     
-    wandb.init(project="project", name= f"{args.model_name}")
-    wandb_logger = WandbLogger('project')
-    
-    # dataloader
-    dataloader = Dataloader(args.model_name, args.batch_size, args.shuffle, args.train_path, args.dev_path, args.test_path, args.predict_path)
-    
-    # model(pl.LightningModule)
-    model = Model(args.model_name, args.learning_rate, args.norm)
-    checkpoint_callback = ModelCheckpoint(
-        dirpath='./models',
-        filename='model-{epoch}',
-        monitor='val_loss',
-        save_top_k=3
-    )
-    earlystopping_callback = EarlyStopping(
-        monitor='val_loss',
-        mode='min'
-    )
-    
-    # Trainer
-    trainer = pl.Trainer(
-        accelerator='gpu',
-        devices=1,
-        max_epochs=args.max_epoch,
-        logger=wandb_logger,
-        log_every_n_steps=1,
-        callbacks=[
-            checkpoint_callback,
-            earlystopping_callback
-        ]
+    # wandb sweep config
+    sweep_config = {
+        'method': 'random',
+        'parameters': {
+            'lr':{
+                'distribution': 'uniform',
+                'min': 1e-5,
+                'max': 1e-4
+            },
+            'norm':{
+                'values': [1, 2]
+            },
+            'batch_size':{
+                'values': [8, 16, 32]
+            }
+        },
+        'metric': {
+            'name': 'val_pearson',
+            'goal': 'maximize'
+        }
+    }
+
+    # create sweep
+    sweep_id = wandb.sweep(
+        sweep=sweep_config,
+        project='project'
     )
     
-    # train + validation
-    trainer.fit(model=model, datamodule=dataloader)
+    def sweep_train(config=None):
+        wandb.init(project="project", name=f"{args.model_name}", config=config)
+        wandb_logger = WandbLogger('project')
+        config = wandb.config
+        
+        dataloader = Dataloader(args.model_name, args.batch_size, args.shuffle, args.train_path, args.dev_path,
+                                args.test_path, args.predict_path)
+        model = Model(args.model_name, args.learning_rate, args.norm)
+        earlystop_callback = EarlyStopping(
+            monitor='val_loss',
+            mode='min'
+        )
+        
+        trainer = pl.Trainer(
+            accelerator='gpu',
+            devices=1,
+            max_epochs=args.max_epoch, 
+            logger=wandb_logger,
+            log_every_n_steps=1, 
+            callbacks=[earlystop_callback]
+        )
+
+        # Train part
+        trainer.fit(model=model, datamodule=dataloader)
+        
+        # Test part
+        trainer.test(model=model, datamodule=dataloader)
     
-    # test
-    trainer.test(model=model, datamodule=dataloader)
+    wandb.agent(
+        sweep_id=sweep_id,
+        function=sweep_train,
+        count=5
+    )
     
-    # 학습이 완료된 모델을 저장합니다.
-    torch.save(model, 'model-epoch-end.pt')
-    
-    # checkpoint load
-    '''
-    model = Model(args.model_name, args.learning_rate, args.norm)
-    model = model.load_from_checkpoint('/opt/ml/code/models/model-epoch=15.ckpt')
-    '''
+    wandb.finish()
