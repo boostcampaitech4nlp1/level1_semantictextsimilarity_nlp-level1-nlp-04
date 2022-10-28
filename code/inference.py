@@ -194,6 +194,8 @@ if __name__ == '__main__':
     parser.add_argument('--dev_path', default='/opt/ml/data/dev.csv')
     parser.add_argument('--test_path', default='/opt/ml/data/dev.csv')
     parser.add_argument('--predict_path', default='/opt/ml/data/test.csv')
+    parser.add_argument('--checkpoint', default=True)
+    
     args = parser.parse_args(args=[])
 
     
@@ -205,15 +207,16 @@ if __name__ == '__main__':
     # gpu가 없으면 'gpus=0'을, gpu가 여러개면 'gpus=4'처럼 사용하실 gpu의 개수를 입력해주세요
     trainer = pl.Trainer(gpus=1, max_epochs=args.max_epoch, log_every_n_steps=1)
 
-    # Inference part
-    # 저장된 모델로 예측을 진행합니다.
-    model = torch.load('/opt/ml/code/model-epoch-end.pt')
+    
     
     # checkpoint load
-    '''
-    model = Model(args.model_name, args.learning_rate, args.norm)
-    model = model.load_from_checkpoint('/opt/ml/code/models/model-epoch=15.ckpt')
-    '''
+    if args.checkpoint:
+        model = Model(args.model_name, args.learning_rate, args.norm)
+        model = model.load_from_checkpoint('/opt/ml/code/models/model-epoch=4.ckpt')
+    else:
+        # 저장된 모델로 예측을 진행합니다.
+        model = torch.load('/opt/ml/code/model-epoch-end.pt')
+    
     
     predictions = trainer.predict(model=model, datamodule=dataloader)
 
