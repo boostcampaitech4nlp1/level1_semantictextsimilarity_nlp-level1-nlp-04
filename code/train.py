@@ -21,7 +21,7 @@ if __name__ == '__main__':
     # 실행 시 '--batch_size=64' 같은 인자를 입력하지 않으면 default 값이 기본으로 실행됩니다
     parser = argparse.ArgumentParser()
     parser.add_argument('--stage', default='fit', type=str) # fit / test / predict
-    parser.add_argument('--model_name', default='xlm-roberta-base', type=str)
+    parser.add_argument('--model_name', default='klue/roberta-base', type=str)
     parser.add_argument('--batch_size', default=16, type=int)
     parser.add_argument('--max_epoch', default=10, type=int)
     parser.add_argument('--shuffle', default=True)
@@ -60,10 +60,11 @@ if __name__ == '__main__':
         mode='min'
     )
     '''
+    
     # Trainer
     trainer = pl.Trainer(
-        # accelerator='gpu',
-        # devices=1,
+        accelerator='gpu',
+        devices=1,
         max_epochs=args.max_epoch,
         # logger=wandb_logger,
         log_every_n_steps=1,
@@ -71,10 +72,6 @@ if __name__ == '__main__':
             checkpoint_callback,
         ]
     )
-    try:
-        torch.cuda.empty_cache()
-    except BaseException as e:
-        print(f"Error Corruption : {e}")
     
     # train + validation
     trainer.fit(model=model, datamodule=dataloader)

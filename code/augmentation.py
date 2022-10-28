@@ -82,12 +82,12 @@ def random_swap(words, n):
 	return new_words
 
 def swap_word(new_words):
-	random_idx_1 = random.randint(0, len(new_words)-2)
+	random_idx_1 = random.randint(0, len(new_words)-1)
 	random_idx_2 = random_idx_1
 	counter = 0
 
 	while random_idx_2 == random_idx_1:
-		random_idx_2 = random.randint(0, len(new_words)-2)
+		random_idx_2 = random.randint(0, len(new_words)-1)
 		counter += 1
 		if counter > 3:
 			return new_words
@@ -126,7 +126,7 @@ def add_word(new_words):
 	new_words.insert(random_idx, random_synonym)
 
 
-def EDA(sentence, alpha_sr=0.1, alpha_ri=0.1, alpha_rs=0.1, p_rd=0.1, num_aug=2)-> List:
+def EDA(sentence, alpha_sr=0.1, alpha_ri=0.1, alpha_rs=0.1, p_rd=0.1, num_aug=3)-> List:
 	words = sentence.split(' ')
 	words = [word for word in words if word != ""]
 	num_words = len(words)

@@ -58,7 +58,6 @@ class Dataloader(pl.LightningDataModule):
 
     def tokenizing(self, dataframe):
         data = []
-        
         for idx, item in tqdm(dataframe.iterrows(), desc='tokenizing', total=len(dataframe)):
             # 두 입력 문장을 [SEP] 토큰으로 이어붙여서 전처리합니다.
             
@@ -74,7 +73,6 @@ class Dataloader(pl.LightningDataModule):
             
             augment_sentence_1 = augmentation.EDA(sentences[0])
             augment_sentence_2 = augmentation.EDA(sentences[1])
-            
             for s1, s2 in zip(augment_sentence_1, augment_sentence_2):
                 text = s1 + '[SEP]' + s2
             
@@ -85,13 +83,17 @@ class Dataloader(pl.LightningDataModule):
     def preprocessing(self, data):
         data = data.drop(columns=self.delete_columns)
 
-        # 타겟 데이터가 없으면 빈 배열을 리턴합니다.
-        try:
-            targets = data[self.target_columns].values.tolist()
-        except:
-            targets = []
         # 텍스트 데이터를 전처리합니다.
         inputs = self.tokenizing(data)
+
+        # 타겟 데이터가 없으면 빈 배열을 리턴합니다.
+        augment_cnt = 3
+        try:
+            targets = data[self.target_columns].values.tolist()
+            for target in data[self.target_columns].values.tolist():
+                targets += [target for _ in range(augment_cnt+1)]
+        except:
+            targets = []
         return inputs, targets
     
     def setup(self, stage='fit'):
