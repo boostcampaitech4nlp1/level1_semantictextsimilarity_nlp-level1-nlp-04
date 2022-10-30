@@ -60,7 +60,9 @@ class RegressionModel(pl.LightningModule):
         total_loss = distance_loss + self.cls_weight * classification_loss
         
         self.log("val_total_loss", total_loss)
+        
         self.log("val_pearson", torchmetrics.functional.pearson_corrcoef(logits.squeeze(), labels))
+        self.log("val_f1", torchmetrics.functional.f1_score(logits.squeeze(), binary_labels))
         return total_loss
 
     def test_step(self, batch, batch_idx):
@@ -69,6 +71,7 @@ class RegressionModel(pl.LightningModule):
         
         logits = self(x)
         self.log("test_pearson", torchmetrics.functional.pearson_corrcoef(logits.squeeze(), labels))
+        self.log("test_f1", torchmetrics.functional.f1_score(logits.squeeze(), binary_labels))
 
     def predict_step(self, batch, batch_idx):
         x = batch

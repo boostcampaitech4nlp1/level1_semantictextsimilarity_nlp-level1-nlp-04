@@ -62,8 +62,8 @@ if __name__ == '__main__':
             }
         },
         'metric': {
-            'name': 'val_pearson',
-            'goal': 'maximize'
+            'name': 'val_total_loss',
+            'goal': 'minimize'
         }
     }
 
