@@ -26,6 +26,7 @@ if __name__ == '__main__':
     parser.add_argument('--shuffle', default=True)
     parser.add_argument('--norm', default=1, type=int)
     parser.add_argument('--num_aug', default=2, type=int)
+    parser.add_argument('--cls_weight', default=1e-3, type=float)
     parser.add_argument('--learning_rate', default=1e-5, type=float)
     parser.add_argument('--train_path', default='/opt/ml/data/train.csv')
     parser.add_argument('--dev_path', default='/opt/ml/data/dev.csv')

@@ -62,7 +62,7 @@ class RegressionModel(pl.LightningModule):
         self.log("val_total_loss", total_loss)
         
         self.log("val_pearson", torchmetrics.functional.pearson_corrcoef(logits.squeeze(), labels.float()))
-        self.log("val_f1", torchmetrics.functional.f1_score(logits.squeeze(), binary_labels.float()))
+        self.log("val_f1", torchmetrics.functional.f1_score(logits.squeeze(), binary_labels.int()))
         return total_loss
 
     def test_step(self, batch, batch_idx):
@@ -71,7 +71,7 @@ class RegressionModel(pl.LightningModule):
         
         logits = self(x)
         self.log("test_pearson", torchmetrics.functional.pearson_corrcoef(logits.squeeze(), labels.float()))
-        self.log("test_f1", torchmetrics.functional.f1_score(logits.squeeze(), binary_labels.float()))
+        self.log("test_f1", torchmetrics.functional.f1_score(logits.squeeze(), binary_labels.int()))
 
     def predict_step(self, batch, batch_idx):
         x = batch
@@ -112,7 +112,7 @@ class ClassificationModel(pl.LightningModule):
         logits = self(x)
         loss = self.criterion(logits, binary_labels.float())
         self.log("val_loss", loss)
-        self.log("val_f1", torchmetrics.functional.f1_score(logits.squeeze(), binary_labels))
+        self.log("val_f1", torchmetrics.functional.f1_score(logits.squeeze(), binary_labels.int()))
         return loss
 
     def test_step(self, batch, batch_idx):
@@ -120,7 +120,7 @@ class ClassificationModel(pl.LightningModule):
         labels, binary_labels = y[:, 0], y[:, 1]
         
         logits = self(x)
-        self.log("test_pearson", torchmetrics.functional.f1_score(logits.squeeze(), binary_labels))
+        self.log("test_pearson", torchmetrics.functional.f1_score(logits.squeeze(), binary_labels.int()))
 
     def predict_step(self, batch, batch_idx):
         x = batch

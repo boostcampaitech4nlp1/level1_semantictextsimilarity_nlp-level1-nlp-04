@@ -27,6 +27,7 @@ if __name__ == '__main__':
     parser.add_argument('--shuffle', default=True)
     parser.add_argument('--norm', default=1, type=int)
     parser.add_argument('--num_aug', default=2, type=int)
+    parser.add_argument('--cls_weight', default=1e-3, type=float)
     parser.add_argument('--learning_rate', default=1e-5, type=float)
     parser.add_argument('--train_path', default='/opt/ml/data/train.csv')
     parser.add_argument('--dev_path', default='/opt/ml/data/dev.csv')
@@ -34,14 +35,14 @@ if __name__ == '__main__':
     parser.add_argument('--predict_path', default='/opt/ml/data/test.csv')
     args = parser.parse_args(args=[])
 
-    # try:
-    #     wandb.login(key='4c0a01eaa2bd589d64c5297c5bc806182d126350')
-    # except:
-    #     anony = "must"
-    #     print('If you want to use your W&B account, go to Add-ons -> Secrets and provide your W&B access token. Use the Label name as wandb_api. \nGet your W&B access token from here: https://wandb.ai/authorize')
+    try:
+        wandb.login(key='4c0a01eaa2bd589d64c5297c5bc806182d126350')
+    except:
+        anony = "must"
+        print('If you want to use your W&B account, go to Add-ons -> Secrets and provide your W&B access token. Use the Label name as wandb_api. \nGet your W&B access token from here: https://wandb.ai/authorize')
     
-    # wandb.init(project="project", name= f"{args.model_name}")
-    # wandb_logger = WandbLogger('project')
+    wandb.init(project="project", name= f"{args.model_name}")
+    wandb_logger = WandbLogger('project')
     
     # dataloader
     dataloader = Dataloader(
@@ -56,7 +57,7 @@ if __name__ == '__main__':
     )
     
     # model(pl.LightningModule)
-    regression_model = RegressionModel(args.model_name, args.learning_rate, args.norm)
+    regression_model = RegressionModel(args.model_name, args.learning_rate, args.norm, args.cls_weight)
     classification_model = ClassificationModel(args.model_name, args.learning_rate)
     
     checkpoint_callback = ModelCheckpoint(
@@ -75,7 +76,7 @@ if __name__ == '__main__':
         accelerator='gpu',
         devices=1,
         max_epochs=args.max_epoch,
-        # logger=wandb_logger,
+        logger=wandb_logger,
         log_every_n_steps=1,
         gradient_clip_val=3,
         gradient_clip_algorithm='norm',
