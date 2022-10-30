@@ -11,7 +11,7 @@ from pytorch_lightning.callbacks import EarlyStopping
 import wandb
 
 from datamodule import Dataloader
-from model import Model
+from model import ClassificationModel, RegressionModel
 
 
 
@@ -20,13 +20,14 @@ if __name__ == '__main__':
     # 터미널 실행 예시 : python3 run.py --batch_size=64 ...
     # 실행 시 '--batch_size=64' 같은 인자를 입력하지 않으면 default 값이 기본으로 실행됩니다
     parser = argparse.ArgumentParser()
-    parser.add_argument('--stage', default='fit', type=str) # fit / test / predict
+    # parser.add_argument('--stage', default='fit', type=str) # fit / test / predict
     parser.add_argument('--model_name', default='klue/roberta-base', type=str)
     parser.add_argument('--batch_size', default=16, type=int)
     parser.add_argument('--max_epoch', default=10, type=int)
     parser.add_argument('--shuffle', default=True)
     parser.add_argument('--norm', default=1, type=int)
-    parser.add_argument('--learning_rate', default=3e-5, type=float)
+    parser.add_argument('--num_aug', default=2, type=int)
+    parser.add_argument('--learning_rate', default=1e-5, type=float)
     parser.add_argument('--train_path', default='/opt/ml/data/train.csv')
     parser.add_argument('--dev_path', default='/opt/ml/data/dev.csv')
     parser.add_argument('--test_path', default='/opt/ml/data/dev.csv')
@@ -43,41 +44,53 @@ if __name__ == '__main__':
     # wandb_logger = WandbLogger('project')
     
     # dataloader
-    dataloader = Dataloader(args.model_name, args.batch_size, args.shuffle, args.train_path, args.dev_path, args.test_path, args.predict_path)
+    dataloader = Dataloader(
+        args.model_name, 
+        args.batch_size, 
+        args.shuffle, 
+        args.train_path, 
+        args.dev_path, 
+        args.test_path, 
+        args.predict_path,
+        args.num_aug
+    )
     
     # model(pl.LightningModule)
-    model = Model(args.model_name, args.learning_rate, args.norm)
+    regression_model = RegressionModel(args.model_name, args.learning_rate, args.norm)
+    classification_model = ClassificationModel(args.model_name, args.learning_rate)
+    
     checkpoint_callback = ModelCheckpoint(
         dirpath='./models',
         filename='model+{epoch}+{val_loss:.2f}',
-        monitor='val_loss',
+        monitor='val_total_loss',
         save_top_k=2
     )
-    
-    '''
     earlystopping_callback = EarlyStopping(
-        monitor='val_loss',
+        monitor='val_total_loss',
         mode='min'
     )
-    '''
     
     # Trainer
-    trainer = pl.Trainer(
+    regression_trainer = pl.Trainer(
         accelerator='gpu',
         devices=1,
         max_epochs=args.max_epoch,
         # logger=wandb_logger,
         log_every_n_steps=1,
+        gradient_clip_val=3,
+        gradient_clip_algorithm='norm',
         callbacks=[
             checkpoint_callback,
+            earlystopping_callback
         ]
     )
     
     # train + validation
-    trainer.fit(model=model, datamodule=dataloader)
+    regression_trainer.fit(model=regression_model, datamodule=dataloader)
+    regression_trainer.save_checkpoint('./models/regression-model-epoch-end.ckpt')
     
     # test
-    trainer.test(model=model, datamodule=dataloader)
+    regression_trainer.test(model=regression_model, datamodule=dataloader)
     
     # 학습이 완료된 모델을 저장합니다.
-    torch.save(model, 'model-epoch-end.pt')
+    # torch.save(model, 'model-epoch-end.pt')

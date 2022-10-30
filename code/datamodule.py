@@ -1,14 +1,20 @@
+from json import JSONDecodeError
 import re
 import pytorch_lightning as pl
 import torch
 import transformers
 from tqdm.auto import tqdm
 import pandas as pd
-from pykospacing import Spacing
+import numpy as np
 
+# from pykospacing import Spacing
+from hanspell import spell_checker
 
+import os
 import util
 import augmentation
+import sys
+import random
 
 class Dataset(torch.utils.data.Dataset):
     def __init__(self, inputs, targets=[]):
@@ -29,7 +35,16 @@ class Dataset(torch.utils.data.Dataset):
 
 
 class Dataloader(pl.LightningDataModule):
-    def __init__(self, model_name, batch_size, shuffle, train_path, dev_path, test_path, predict_path):
+    def __init__(self, 
+                 model_name, 
+                 batch_size, 
+                 shuffle, 
+                 train_path, 
+                 dev_path, 
+                 test_path, 
+                 predict_path,
+                 num_aug
+        ):
         super().__init__()
         self.model_name = model_name
         self.batch_size = batch_size
@@ -39,61 +54,94 @@ class Dataloader(pl.LightningDataModule):
         self.dev_path = dev_path
         self.test_path = test_path
         self.predict_path = predict_path
+        
+        self.num_aug = num_aug
 
         self.train_dataset = None
         self.val_dataset = None
         self.test_dataset = None
         self.predict_dataset = None
         
+        # self.spacing = Spacing()
         self.tokenizer = transformers.AutoTokenizer.from_pretrained(model_name, max_length=160)
         
         # main data
-        self.target_columns = ['label']
+        self.target_columns = ['label', 'binary-label']
         self.delete_columns = ['id']
         self.text_columns = ['sentence_1', 'sentence_2']
         
-        # pyspacing
-        self.spacing = Spacing()
-        
 
-    def tokenizing(self, dataframe):
+    def tokenizing(self, dataframe, stage=None):
         data = []
         for idx, item in tqdm(dataframe.iterrows(), desc='tokenizing', total=len(dataframe)):
-            # 두 입력 문장을 [SEP] 토큰으로 이어붙여서 전처리합니다.
-            
-            # text = '[SEP]'.join(
-            #     [util.get_only_korean(item[text_column]) for text_column in self.text_columns]
-            #     # [item[text_column] for text_column in self.text_columns]
-            # )
-            # sentences: [sentence_1: str, sentence_2: str]
-            sentences = [
-                self.spacing(util.get_only_korean(item[text_column])) 
-                for text_column in self.text_columns
-            ]
-            
-            augment_sentence_1 = augmentation.EDA(sentences[0])
-            augment_sentence_2 = augmentation.EDA(sentences[1])
-            for s1, s2 in zip(augment_sentence_1, augment_sentence_2):
-                text = s1 + '[SEP]' + s2
-            
+            if stage == 'fit':
+                try:
+                    sentences = [
+                        # util.get_usable_char(self.spacing(item[text_column]))
+                        util.get_usable_char(spell_checker.check(item[text_column]).checked)
+                        for text_column in self.text_columns
+                    ]
+                except BaseException as e:
+                    # 띄어쓰기가 전혀 없는 이상한 문장에 대해서 에러 발생
+                    sentences = [
+                        util.get_usable_char(item[text_column])
+                        for text_column in self.text_columns
+                    ]
+                
+                if len(sentences[0]) > 1 and len(sentences[1]) > 1:
+                    augment_sentence_1 = augmentation.EDA(sentences[0], num_aug=self.num_aug)
+                    augment_sentence_2 = augmentation.EDA(sentences[1], num_aug=self.num_aug)
+                else:
+                    augment_sentence_1 = [sentences[0]] * (self.num_aug+1)
+                    augment_sentence_2 = [sentences[1]] * (self.num_aug+1)
+                
+                for s1, s2 in zip(augment_sentence_1, augment_sentence_2):
+                    text = s1 + '[SEP]' + s2
+                    outputs = self.tokenizer(text, add_special_tokens=True, padding='max_length', truncation=True)
+                    data.append(outputs['input_ids'])
+            else:
+                text = '[SEP]'.join(
+                    [util.get_only_korean(item[text_column]) for text_column in self.text_columns]
+                    # [item[text_column] for text_column in self.text_columns]
+                )
                 outputs = self.tokenizer(text, add_special_tokens=True, padding='max_length', truncation=True)
-                data.append(outputs['input_ids'])
+                data.append(outputs['input_ids'])    
         return data
 
-    def preprocessing(self, data):
+    def preprocessing(self, data, stage, stage_type=''):
         data = data.drop(columns=self.delete_columns)
-
+        if stage_type == 'train':
+            tmp1 = data[data['label']!=0]
+            tmp2 = data[data['label']==0].sample(500)
+            data = pd.concat([tmp1, tmp2])
+        
         # 텍스트 데이터를 전처리합니다.
-        inputs = self.tokenizing(data)
+        if os.path.exists(f'./object/array-{stage_type}-data.npy'):
+            inputs = util.npy_object_load(stage_type).tolist()
+        else:
+            inputs = self.tokenizing(data, stage)
 
         # 타겟 데이터가 없으면 빈 배열을 리턴합니다.
-        augment_cnt = 3
-        try:
-            targets = data[self.target_columns].values.tolist()
-            for target in data[self.target_columns].values.tolist():
-                targets += [target for _ in range(augment_cnt+1)]
-        except:
-            targets = []
+        targets = []
+        if stage == 'fit':
+            try:
+                limit = 0.2
+                for label, binary_label in data[self.target_columns].values.tolist():
+                    if label != 0:
+                        rands = [(round(label-random.uniform(-limit, -0.1), 1), binary_label)
+                                    if label-limit > 0 else (label, binary_label) 
+                                    for _ in range(self.num_aug)
+                                ]
+                        targets += [(label, binary_label)] + rands
+                    else:
+                        targets += [(label, binary_label) for _ in range(self.num_aug+1)]
+            except:
+                targets = []
+        else:
+            try:
+                targets =  list(map(tuple, data[self.target_columns].values.tolist()))
+            except:
+                targets = []
         return inputs, targets
     
     def setup(self, stage='fit'):
@@ -103,10 +151,12 @@ class Dataloader(pl.LightningDataModule):
             val_data = pd.read_csv(self.dev_path)
 
             # 학습데이터 준비
-            train_inputs, train_targets = self.preprocessing(train_data)
+            stage_type='train'
+            train_inputs, train_targets = self.preprocessing(train_data, stage, stage_type=stage_type)
+            util.npy_object_save(stage_type+'-data', np.asarray(train_inputs))
 
             # 검증데이터 준비
-            val_inputs, val_targets = self.preprocessing(val_data)
+            val_inputs, val_targets = self.preprocessing(val_data, stage)
 
             # train 데이터만 shuffle을 적용해줍니다, 필요하다면 val, test 데이터에도 shuffle을 적용할 수 있습니다
             self.train_dataset = Dataset(train_inputs, train_targets)
@@ -114,11 +164,11 @@ class Dataloader(pl.LightningDataModule):
         else:
             # 평가데이터 준비
             test_data = pd.read_csv(self.test_path)
-            test_inputs, test_targets = self.preprocessing(test_data)
+            test_inputs, test_targets = self.preprocessing(test_data, stage)
             self.test_dataset = Dataset(test_inputs, test_targets)
 
             predict_data = pd.read_csv(self.predict_path)
-            predict_inputs, predict_targets = self.preprocessing(predict_data)
+            predict_inputs, predict_targets = self.preprocessing(predict_data, stage)
             self.predict_dataset = Dataset(predict_inputs, [])
 
     def train_dataloader(self):

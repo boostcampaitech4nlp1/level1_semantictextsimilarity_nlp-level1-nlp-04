@@ -12,7 +12,7 @@ from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 
 import wandb
-from model import Model
+from model import RegressionModel
 from datamodule import Dataloader
 
 
@@ -23,13 +23,14 @@ if __name__ == '__main__':
     # 터미널 실행 예시 : python3 run.py --batch_size=64 ...
     # 실행 시 '--batch_size=64' 같은 인자를 입력하지 않으면 default 값이 기본으로 실행됩니다
     parser = argparse.ArgumentParser()
-    parser.add_argument('--stage', default='predict', type=str) # fit / test / predict
     parser.add_argument('--model_name', default='klue/roberta-base', type=str)
     parser.add_argument('--batch_size', default=16, type=int)
-    parser.add_argument('--max_epoch', default=6, type=int)     # 1 + 5
+    parser.add_argument('--max_epoch', default=10, type=int)
     parser.add_argument('--shuffle', default=True)
     parser.add_argument('--norm', default=1, type=int)
-    parser.add_argument('--learning_rate', default=3e-5, type=float)
+    parser.add_argument('--num_aug', default=2, type=int)
+    parser.add_argument('--learning_rate', default=1e-5, type=float)
+    parser.add_argument('--cls_weight', default=1e-3, type=float)
     parser.add_argument('--train_path', default='/opt/ml/data/train.csv')
     parser.add_argument('--dev_path', default='/opt/ml/data/dev.csv')
     parser.add_argument('--test_path', default='/opt/ml/data/dev.csv')
@@ -54,8 +55,10 @@ if __name__ == '__main__':
             'norm':{
                 'values': [1, 2]
             },
-            'batch_size': {
-                'values': [16, 32]
+            'cls_weight':{
+                'distribution': 'uniform',
+                'min': 1e-5,
+                'max': 1e-3
             }
         },
         'metric': {
@@ -68,7 +71,6 @@ if __name__ == '__main__':
     sweep_id = wandb.sweep(
         sweep=sweep_config,
         project='project',
-        count=10
     )
     
     def sweep_train(config=None):
@@ -76,11 +78,19 @@ if __name__ == '__main__':
         wandb_logger = WandbLogger('project')
         config = wandb.config
         
-        dataloader = Dataloader(args.model_name, args.batch_size, args.shuffle, args.train_path, args.dev_path,
-                                args.test_path, args.predict_path)
-        model = Model(args.model_name, args.learning_rate, args.norm)
+        dataloader = Dataloader(
+            args.model_name, 
+            args.batch_size, 
+            args.shuffle, 
+            args.train_path, 
+            args.dev_path, 
+            args.test_path, 
+            args.predict_path,
+            args.num_aug
+        )
+        model = RegressionModel(args.model_name, args.learning_rate, args.norm, args.cls_weight)
         earlystop_callback = EarlyStopping(
-            monitor='val_loss',
+            monitor='val_total_loss',
             mode='min'
         )
         
