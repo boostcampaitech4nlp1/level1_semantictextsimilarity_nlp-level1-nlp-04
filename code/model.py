@@ -42,7 +42,7 @@ class RegressionModel(pl.LightningModule):
         
         logits = self(x)
         distance_loss = self.distance_loss(logits.squeeze(), labels.float())
-        classification_loss = self.classification_loss(logits.squeeze(), binary_labels)
+        classification_loss = self.classification_loss(logits.squeeze(), binary_labels.float())
         total_loss = distance_loss + self.cls_weight * classification_loss
         
         self.log("train_distance_loss", distance_loss)
@@ -56,13 +56,13 @@ class RegressionModel(pl.LightningModule):
         
         logits = self(x)
         distance_loss = self.distance_loss(logits.squeeze(), labels.float())
-        classification_loss = self.classification_loss(logits.squeeze(), binary_labels)
+        classification_loss = self.classification_loss(logits.squeeze(), binary_labels.float())
         total_loss = distance_loss + self.cls_weight * classification_loss
         
         self.log("val_total_loss", total_loss)
         
-        self.log("val_pearson", torchmetrics.functional.pearson_corrcoef(logits.squeeze(), labels))
-        self.log("val_f1", torchmetrics.functional.f1_score(logits.squeeze(), binary_labels))
+        self.log("val_pearson", torchmetrics.functional.pearson_corrcoef(logits.squeeze(), labels.float()))
+        self.log("val_f1", torchmetrics.functional.f1_score(logits.squeeze(), binary_labels.float()))
         return total_loss
 
     def test_step(self, batch, batch_idx):
@@ -70,8 +70,8 @@ class RegressionModel(pl.LightningModule):
         labels, binary_labels = y[:, 0], y[:, 1]
         
         logits = self(x)
-        self.log("test_pearson", torchmetrics.functional.pearson_corrcoef(logits.squeeze(), labels))
-        self.log("test_f1", torchmetrics.functional.f1_score(logits.squeeze(), binary_labels))
+        self.log("test_pearson", torchmetrics.functional.pearson_corrcoef(logits.squeeze(), labels.float()))
+        self.log("test_f1", torchmetrics.functional.f1_score(logits.squeeze(), binary_labels.float()))
 
     def predict_step(self, batch, batch_idx):
         x = batch
