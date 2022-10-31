@@ -11,7 +11,7 @@ from pytorch_lightning.callbacks import EarlyStopping
 import wandb
 
 from datamodule import Dataloader
-from model import ClassificationModel, RegressionModel
+from model import ClassificationModel, EnsambleModel, RegressionModel
 
 
 
@@ -20,14 +20,14 @@ if __name__ == '__main__':
     # 터미널 실행 예시 : python3 run.py --batch_size=64 ...
     # 실행 시 '--batch_size=64' 같은 인자를 입력하지 않으면 default 값이 기본으로 실행됩니다
     parser = argparse.ArgumentParser()
-    # parser.add_argument('--stage', default='fit', type=str) # fit / test / predict
+    parser.add_argument('--stage', default='fit', type=str) # fit / test / predict
     parser.add_argument('--model_name', default='klue/roberta-base', type=str)
     parser.add_argument('--batch_size', default=16, type=int)
     parser.add_argument('--max_epoch', default=10, type=int)
     parser.add_argument('--shuffle', default=True)
     parser.add_argument('--norm', default=1, type=int)
+    parser.add_argument('--augmentation', default=False, type=bool)
     parser.add_argument('--num_aug', default=2, type=int)
-    parser.add_argument('--cls_weight', default=1e-3, type=float)
     parser.add_argument('--learning_rate', default=1e-5, type=float)
     parser.add_argument('--train_path', default='/opt/ml/data/train.csv')
     parser.add_argument('--dev_path', default='/opt/ml/data/dev.csv')
@@ -35,14 +35,14 @@ if __name__ == '__main__':
     parser.add_argument('--predict_path', default='/opt/ml/data/test.csv')
     args = parser.parse_args(args=[])
 
-    try:
-        wandb.login(key='4c0a01eaa2bd589d64c5297c5bc806182d126350')
-    except:
-        anony = "must"
-        print('If you want to use your W&B account, go to Add-ons -> Secrets and provide your W&B access token. Use the Label name as wandb_api. \nGet your W&B access token from here: https://wandb.ai/authorize')
+    # try:
+    #     wandb.login(key='4c0a01eaa2bd589d64c5297c5bc806182d126350')
+    # except:
+    #     anony = "must"
+    #     print('If you want to use your W&B account, go to Add-ons -> Secrets and provide your W&B access token. Use the Label name as wandb_api. \nGet your W&B access token from here: https://wandb.ai/authorize')
     
-    wandb.init(project="project", name= f"{args.model_name}")
-    wandb_logger = WandbLogger('project')
+    # wandb.init(project="project", name= f"{args.model_name}")
+    # wandb_logger = WandbLogger('project')
     
     # dataloader
     dataloader = Dataloader(
@@ -53,45 +53,82 @@ if __name__ == '__main__':
         args.dev_path, 
         args.test_path, 
         args.predict_path,
+        args.augmentation,
         args.num_aug
     )
     
-    # model(pl.LightningModule)
-    regression_model = RegressionModel(args.model_name, args.learning_rate, args.norm, args.cls_weight)
-    classification_model = ClassificationModel(args.model_name, args.learning_rate)
+    # model 
+    regression_model = RegressionModel(args.model_name, args.learning_rate, args.norm)
     
-    checkpoint_callback = ModelCheckpoint(
-        dirpath='./models',
-        filename='model+{epoch}+{val_loss:.2f}',
-        monitor='val_total_loss',
-        save_top_k=2
-    )
-    earlystopping_callback = EarlyStopping(
-        monitor='val_total_loss',
-        mode='min'
-    )
+    # checkpoint_callback = ModelCheckpoint(
+    #     dirpath='./models',
+    #     filename='model+{epoch}+{val_loss:.2f}',
+    #     monitor='val_total_loss',
+    #     save_top_k=2
+    # )
+    # earlystopping_callback = EarlyStopping(
+    #     monitor='val_total_loss',
+    #     mode='min'
+    # )
     
     # Trainer
-    regression_trainer = pl.Trainer(
-        accelerator='gpu',
-        devices=1,
-        max_epochs=args.max_epoch,
-        logger=wandb_logger,
-        log_every_n_steps=1,
-        gradient_clip_val=3,
-        gradient_clip_algorithm='norm',
-        callbacks=[
-            checkpoint_callback,
-            earlystopping_callback
-        ]
+    # regression_trainer = pl.Trainer(
+    #     accelerator='gpu',
+    #     devices=1,
+    #     max_epochs=args.max_epoch,
+    #     # logger=wandb_logger,
+    #     log_every_n_steps=1,
+    #     callbacks=[
+    #         # checkpoint_callback,
+    #         # earlystopping_callback
+    #     ]
+    # )
+    
+    # # regression_trainer / train + validation
+    # regression_trainer.fit(model=regression_model, datamodule=dataloader)
+    # regression_trainer.save_checkpoint('./models/regression-model-epoch-end.ckpt')
+    
+    # # test
+    # regression_trainer.test(model=regression_model, datamodule=dataloader)
+    
+    
+    
+    # classification_model = ClassificationModel(args.model_name, args.learning_rate)
+    # classification_trainer = pl.Trainer(
+    #     accelerator='gpu',
+    #     devices=1,
+    #     max_epochs=args.max_epoch,
+    #     # logger=wandb_logger,
+    #     log_every_n_steps=1,
+    # )
+    
+    # # classification_trainer / train + validation
+    # classification_trainer.fit(model=classification_model, datamodule=dataloader)
+    # classification_trainer.save_checkpoint('./models/classification-model-epoch-end.ckpt')
+    
+    # # test
+    # classification_trainer.test(model=classification_model, datamodule=dataloader)
+    
+    # ensamble
+    ensamble_model = EnsambleModel(
+        model_name=args.model_name,
+        distance_model_path='./models/regression-model-epoch-end.ckpt',
+        cls_model_path='./models/classification-model-epoch-end.ckpt',
+        lr=args.learning_rate,
+        norm=args.norm
     )
     
-    # train + validation
-    regression_trainer.fit(model=regression_model, datamodule=dataloader)
-    regression_trainer.save_checkpoint('./models/regression-model-epoch-end.ckpt')
+    ensamble_trainer = pl.Trainer(
+        accelerator='gpu',
+        devices=1,
+        max_epochs=5,
+        # logger=wandb_logger,
+        log_every_n_steps=1
+    )
     
-    # test
-    regression_trainer.test(model=regression_model, datamodule=dataloader)
+    ensamble_trainer.fit(model=ensamble_model, datamodule=dataloader)
+    ensamble_trainer.test(model=ensamble_model, datamodule=dataloader)
+    
     
     # 학습이 완료된 모델을 저장합니다.
-    # torch.save(model, 'model-epoch-end.pt')
+    # torch.save(regression_model, 'model-epoch-end.pt')

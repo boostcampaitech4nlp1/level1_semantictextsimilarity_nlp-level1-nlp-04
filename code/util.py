@@ -40,4 +40,3 @@ def npy_object_load(filename: str) -> np.ndarray:
     '''
     print("load train dataset object...")
     return np.load(file=f'./object/array-{filename}-data.npy')
-    

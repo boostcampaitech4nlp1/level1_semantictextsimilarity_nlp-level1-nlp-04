@@ -43,6 +43,7 @@ class Dataloader(pl.LightningDataModule):
                  dev_path, 
                  test_path, 
                  predict_path,
+                 augmentation,
                  num_aug
         ):
         super().__init__()
@@ -55,6 +56,7 @@ class Dataloader(pl.LightningDataModule):
         self.test_path = test_path
         self.predict_path = predict_path
         
+        self.augmentation = augmentation
         self.num_aug = num_aug
 
         self.train_dataset = None
@@ -77,7 +79,6 @@ class Dataloader(pl.LightningDataModule):
             if stage == 'fit':
                 try:
                     sentences = [
-                        # util.get_usable_char(self.spacing(item[text_column]))
                         util.get_usable_char(spell_checker.check(item[text_column]).checked)
                         for text_column in self.text_columns
                     ]
@@ -88,21 +89,27 @@ class Dataloader(pl.LightningDataModule):
                         for text_column in self.text_columns
                     ]
                 
-                if len(sentences[0]) > 1 and len(sentences[1]) > 1:
-                    augment_sentence_1 = augmentation.EDA(sentences[0], num_aug=self.num_aug)
-                    augment_sentence_2 = augmentation.EDA(sentences[1], num_aug=self.num_aug)
+                if self.augmentation:
+                    if len(sentences[0]) > 1 and len(sentences[1]) > 1:
+                        augment_sentence_1 = augmentation.EDA(sentences[0], num_aug=self.num_aug)
+                        augment_sentence_2 = augmentation.EDA(sentences[1], num_aug=self.num_aug)
+                    else:
+                        augment_sentence_1 = [sentences[0]] * (self.num_aug+1)
+                        augment_sentence_2 = [sentences[1]] * (self.num_aug+1)
+                    
+                    for s1, s2 in zip(augment_sentence_1, augment_sentence_2):
+                        text = s1 + '[SEP]' + s2
+                        outputs = self.tokenizer(text, add_special_tokens=True, padding='max_length', truncation=True)
+                        data.append(outputs['input_ids'])
                 else:
-                    augment_sentence_1 = [sentences[0]] * (self.num_aug+1)
-                    augment_sentence_2 = [sentences[1]] * (self.num_aug+1)
-                
-                for s1, s2 in zip(augment_sentence_1, augment_sentence_2):
-                    text = s1 + '[SEP]' + s2
+                    text = '[SEP]'.join(
+                        [item[text_column] for text_column in self.text_columns]
+                    )
                     outputs = self.tokenizer(text, add_special_tokens=True, padding='max_length', truncation=True)
                     data.append(outputs['input_ids'])
             else:
                 text = '[SEP]'.join(
                     [util.get_only_korean(item[text_column]) for text_column in self.text_columns]
-                    # [item[text_column] for text_column in self.text_columns]
                 )
                 outputs = self.tokenizer(text, add_special_tokens=True, padding='max_length', truncation=True)
                 data.append(outputs['input_ids'])    
@@ -112,7 +119,7 @@ class Dataloader(pl.LightningDataModule):
         data = data.drop(columns=self.delete_columns)
         if stage_type == 'train':
             tmp1 = data[data['label']!=0]
-            tmp2 = data[data['label']==0].sample(500)
+            tmp2 = data[data['label']==0].sample(1000)
             data = pd.concat([tmp1, tmp2])
         
         # 텍스트 데이터를 전처리합니다.
@@ -120,23 +127,30 @@ class Dataloader(pl.LightningDataModule):
             inputs = util.npy_object_load(stage_type).tolist()
         else:
             inputs = self.tokenizing(data, stage)
+        # inputs = self.tokenizing(data, stage)
 
         # 타겟 데이터가 없으면 빈 배열을 리턴합니다.
         targets = []
         if stage == 'fit':
-            try:
-                limit = 0.2
-                for label, binary_label in data[self.target_columns].values.tolist():
-                    if label != 0:
-                        rands = [(round(label-random.uniform(-limit, -0.1), 1), binary_label)
-                                    if label-limit > 0 else (label, binary_label) 
-                                    for _ in range(self.num_aug)
-                                ]
-                        targets += [(label, binary_label)] + rands
-                    else:
-                        targets += [(label, binary_label) for _ in range(self.num_aug+1)]
-            except:
-                targets = []
+            if self.augmentation:
+                try:
+                    limit = 0.2
+                    for label, binary_label in data[self.target_columns].values.tolist():
+                        if label != 0:  # -0.2 ~ -0.1
+                            rands = [(round(label-random.uniform(-limit, -0.1), 1), binary_label)
+                                        if label-limit > 0 else (label, binary_label) 
+                                        for _ in range(self.num_aug)
+                                    ]
+                            targets += [(label, binary_label)] + rands
+                        else:
+                            targets += [(label, binary_label) for _ in range(self.num_aug+1)]
+                except:
+                    targets = []
+            else:
+                try:
+                    targets = list(map(tuple, data[self.target_columns].values.tolist()))
+                except:
+                    targets = []
         else:
             try:
                 targets =  list(map(tuple, data[self.target_columns].values.tolist()))
@@ -153,7 +167,7 @@ class Dataloader(pl.LightningDataModule):
             # 학습데이터 준비
             stage_type='train'
             train_inputs, train_targets = self.preprocessing(train_data, stage, stage_type=stage_type)
-            util.npy_object_save(stage_type+'-data', np.asarray(train_inputs))
+            util.npy_object_save(stage_type, np.asarray(train_inputs))
 
             # 검증데이터 준비
             val_inputs, val_targets = self.preprocessing(val_data, stage)

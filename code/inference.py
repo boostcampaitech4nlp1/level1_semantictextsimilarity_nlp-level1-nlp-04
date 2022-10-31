@@ -70,4 +70,7 @@ if __name__ == '__main__':
     # output 형식을 불러와서 예측된 결과로 바꿔주고, output.csv로 출력합니다.
     output = pd.read_csv('/opt/ml/data/sample_submission.csv')
     output['target'] = predictions
+    output.loc[output['target'] < 0, 'target'] = float(int(0))
+    output.loc[output['target'] > 5, 'target'] = float(5)
+    
     output.to_csv('output.csv', index=False)
