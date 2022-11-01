@@ -119,7 +119,7 @@ class Dataloader(pl.LightningDataModule):
         data = data.drop(columns=self.delete_columns)
         if stage_type == 'train':
             tmp1 = data[data['label']!=0]
-            tmp2 = data[data['label']==0].sample(1000)
+            tmp2 = data[data['label']==0].sample(300)
             data = pd.concat([tmp1, tmp2])
         
         # 텍스트 데이터를 전처리합니다.
@@ -172,7 +172,10 @@ class Dataloader(pl.LightningDataModule):
             # 학습데이터 준비
             stage_type='train'
             train_inputs, train_targets = self.preprocessing(train_data, stage, stage_type=stage_type)
-            util.npy_object_save(stage_type, np.asarray(train_inputs))
+            if self.augmentation:
+                util.npy_object_save(stage_type+'-aug', np.asarray(train_inputs))    
+            else:
+                util.npy_object_save(stage_type, np.asarray(train_inputs))
 
             # 검증데이터 준비
             val_inputs, val_targets = self.preprocessing(val_data, stage)
