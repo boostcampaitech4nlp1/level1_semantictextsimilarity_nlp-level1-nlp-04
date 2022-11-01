@@ -72,6 +72,137 @@ class RegressionModel(pl.LightningModule):
         # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=3000, gamma=0.5)
         return optimizer
     
+class RegressionRobertaBaseModel(pl.LightningModule):
+    def __init__(self, lr, norm):
+        '''
+            # classification_loss
+            1. L1Loss
+            2. MSELoss
+        '''
+        super().__init__()
+        self.save_hyperparameters()
+
+        self.model_name = 'klue/roberta-base'
+        self.lr = lr
+        self.norm = norm
+
+        # 사용할 모델을 호출합니다.
+        self.plm = transformers.AutoModelForSequenceClassification.from_pretrained(
+            pretrained_model_name_or_path=self.model_name, num_labels=1)
+        
+        # loss
+        if self.norm > 1:
+            self.distance_loss = torch.nn.MSELoss()
+        else:
+            self.distance_loss = torch.nn.SmoothL1Loss()  
+        
+    def forward(self, x):
+        x = self.plm(x)['logits']
+        return x
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        labels, binary_labels = y[:, 0], y[:, 1]
+        
+        logits = self(x)
+        
+        distance_loss = self.distance_loss(logits.squeeze(), labels.float())
+        self.log("train_distance_loss", distance_loss)
+        return distance_loss
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        labels, binary_labels = y[:, 0], y[:, 1]
+        
+        logits = self(x)
+        
+        distance_loss = self.distance_loss(logits.squeeze(), labels.float())
+        
+        self.log("val_distance_loss", distance_loss)
+        self.log("val_pearson", torchmetrics.functional.pearson_corrcoef(logits.squeeze(), labels.float()))
+        return distance_loss
+
+    def test_step(self, batch, batch_idx):
+        x, y = batch
+        labels, binary_labels = y[:, 0], y[:, 1]
+        
+        logits = self(x)
+        self.log("test_pearson", torchmetrics.functional.pearson_corrcoef(logits.squeeze(), labels.float()))
+
+    def predict_step(self, batch, batch_idx):
+        x = batch
+        logits = self(x)   
+        return logits.squeeze()
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
+        return optimizer
+    
+class RegressionBertBaseModel(pl.LightningModule):
+    def __init__(self, lr, norm):
+        '''
+            # classification_loss
+            1. L1Loss
+            2. MSELoss
+        '''
+        super().__init__()
+        self.save_hyperparameters()
+
+        self.model_name = 'klue/bert-base'
+        self.lr = lr
+        self.norm = norm
+
+        # 사용할 모델을 호출합니다.
+        self.plm = transformers.AutoModelForSequenceClassification.from_pretrained(
+            pretrained_model_name_or_path=self.model_name, num_labels=1)
+        
+        # loss
+        if self.norm > 1:
+            self.distance_loss = torch.nn.MSELoss()
+        else:
+            self.distance_loss = torch.nn.SmoothL1Loss()  
+        
+    def forward(self, x):
+        x = self.plm(x)['logits']
+        return x
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        labels, binary_labels = y[:, 0], y[:, 1]
+        
+        logits = self(x)
+        
+        distance_loss = self.distance_loss(logits.squeeze(), labels.float())
+        self.log("train_distance_loss", distance_loss)
+        return distance_loss
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        labels, binary_labels = y[:, 0], y[:, 1]
+        
+        logits = self(x)
+        
+        distance_loss = self.distance_loss(logits.squeeze(), labels.float())
+        
+        self.log("val_distance_loss", distance_loss)
+        self.log("val_pearson", torchmetrics.functional.pearson_corrcoef(logits.squeeze(), labels.float()))
+        return distance_loss
+
+    def test_step(self, batch, batch_idx):
+        x, y = batch
+        labels, binary_labels = y[:, 0], y[:, 1]
+        
+        logits = self(x)
+        self.log("test_pearson", torchmetrics.functional.pearson_corrcoef(logits.squeeze(), labels.float()))
+
+    def predict_step(self, batch, batch_idx):
+        x = batch
+        logits = self(x)   
+        return logits.squeeze()
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
+        return optimizer
     
     
 class ClassificationModel(pl.LightningModule):
@@ -127,9 +258,8 @@ class ClassificationModel(pl.LightningModule):
         # optimizer = torch.optim.SGD(self.parameters(), lr=self.lr)
         # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=3000, gamma=0.5)
         return optimizer    
-    
 
-class EnsambleModel(pl.LightningModule):
+class RegulationModel(pl.LightningModule):
     def __init__(self, 
             model_name,
             distance_model_path,        
@@ -137,11 +267,12 @@ class EnsambleModel(pl.LightningModule):
             lr,
             norm,
         ):
-        super(EnsambleModel, self).__init__()
+        super(RegulationModel, self).__init__()
         self.save_hyperparameters()
         
         self.lr = lr
         self.norm = norm
+        self.w = 1e-3
         
         self.distance_model = RegressionModel(model_name, lr, norm).load_from_checkpoint(distance_model_path)
         self.cls_model = ClassificationModel(model_name, lr).load_from_checkpoint(cls_model_path)
@@ -171,7 +302,7 @@ class EnsambleModel(pl.LightningModule):
         regression_loss = self.regression_loss(d_model_logits.squeeze(), labels.float())
         classification_loss = self.classification_loss(c_model_logits.squeeze(), binary_labels)
         
-        total_loss = regression_loss + 1e-3 * classification_loss
+        total_loss = regression_loss + self.w * classification_loss
         self.log('train_loss', total_loss)
         
         return total_loss
@@ -186,7 +317,7 @@ class EnsambleModel(pl.LightningModule):
         regression_loss = self.regression_loss(d_model_logits.squeeze(), labels.float())
         classification_loss = self.classification_loss(c_model_logits.squeeze(), binary_labels)
         
-        total_loss = regression_loss + 1e-3 * classification_loss
+        total_loss = regression_loss + self.w * classification_loss
         self.log('val_loss', total_loss)
         self.log('val_pearson', torchmetrics.functional.pearson_corrcoef(d_model_logits.squeeze(), labels.float()))
         self.log("val_f1", torchmetrics.functional.f1_score(c_model_logits.squeeze(), binary_labels.int()))
@@ -214,5 +345,32 @@ class EnsambleModel(pl.LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
         return optimizer
+
+
+# soft voting
+class EnsambleModel(pl.LightningModule):
+    def __init__(self, **kwargs):
+        super(EnsambleModel, self).__init__()
+        
+        self.regression_bert_base_model = RegressionBertBaseModel.load_from_checkpoint(
+            kwargs['regression_bert_base_model_path']
+        )
+        self.regression_roberta_base_model = RegressionRobertaBaseModel.load_from_checkpoint(
+            kwargs['regression_roberta_base_model_path']
+        )
+        
+        self.regression_bert_base_model.freeze()
+        self.regression_roberta_base_model.freeze()
     
+    def forward(self, x):
+        bert_base_logits = self.regression_bert_base_model.plm(x)['logits']
+        roberta_base_logits = self.regression_roberta_base_model.plm(x)['logits']
+        
+        logits = (bert_base_logits + roberta_base_logits) / 2.
+        return logits
     
+    def predict_step(self, batch, batch_idx):
+        x = batch
+        logits = self(x)
+        
+        return logits.squeeze()

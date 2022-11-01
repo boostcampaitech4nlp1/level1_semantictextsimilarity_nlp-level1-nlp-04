@@ -11,7 +11,7 @@ from pytorch_lightning.callbacks import EarlyStopping
 import wandb
 
 from datamodule import Dataloader
-from model import EnsambleModel, RegressionModel
+from model import *
 import pandas as pd
 
 
@@ -32,7 +32,7 @@ if __name__ == '__main__':
     parser.add_argument('--dev_path', default='/opt/ml/data/dev.csv')
     parser.add_argument('--test_path', default='/opt/ml/data/dev.csv')
     parser.add_argument('--predict_path', default='/opt/ml/data/test.csv')
-    parser.add_argument('--checkpoint', default=True)
+    parser.add_argument('--ensamble', default=True)
     
     args = parser.parse_args(args=[])
 
@@ -51,24 +51,22 @@ if __name__ == '__main__':
         args.num_aug
     )
 
-    # gpu가 없으면 'gpus=0'을, gpu가 여러개면 'gpus=4'처럼 사용하실 gpu의 개수를 입력해주세요
     trainer = pl.Trainer(gpus=1, max_epochs=args.max_epoch, log_every_n_steps=1)
 
-    
-    
     # checkpoint load
-    if args.checkpoint:
-        model = EnsambleModel.load_from_checkpoint('./models/ensamble-model-epoch-end.ckpt')
+    if args.ensamble:
+        model = EnsambleModel(
+        regression_bert_base_model_path='./models/regression-bert-base-model-epoch-end.ckpt',
+        regression_roberta_base_model_path='./models/regression-roberta-base-model-epoch-end.ckpt'
+    )    
     else:
-        # 저장된 모델로 예측을 진행합니다.
-        model = torch.load('/opt/ml/code/model-epoch-end.pt')
+        model = RegulationModel.load_from_checkpoint('./models/ensamble-model-epoch-end.ckpt')
+    
     
     predictions = trainer.predict(model=model, datamodule=dataloader)
 
-    # 예측된 결과를 형식에 맞게 반올림하여 준비합니다.
     predictions = list(round(float(i), 1) for i in torch.cat(predictions))
-
-    # output 형식을 불러와서 예측된 결과로 바꿔주고, output.csv로 출력합니다.
+    
     output = pd.read_csv('/opt/ml/data/sample_submission.csv')
     output['target'] = predictions
     output.loc[output['target'] < 0, 'target'] = float(int(0))

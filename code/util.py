@@ -1,6 +1,17 @@
 import re
 import os
 import numpy as np
+import pandas as pd
+
+def get_custom_data():
+    filename = './data/new_train.csv'
+    df = pd.read_csv(filename)
+    df.drop(['sentence_1', 'sentence_2'], axis=1, inplace=True)
+    df.rename(columns={
+        'new_sentence_1': 'sentence_1',
+        'new_sentence_2': 'sentence_2'
+    }, inplace=True)
+    return df
 
 def get_usable_char(text: str):
     ''' 
@@ -24,19 +35,19 @@ def get_only_korean(text: str):
     '''
     return re.sub(r'[^\uAC00-\uD7A30-9a-zA-Z\s]', '', text)
 
-
-def npy_object_save(filename: str, arr: np.ndarray) -> None:
+def npy_object_save(file: str, arr: np.ndarray) -> None:
     '''
-        ### file name: array-[filename].npy
+        ### file: input file path
     '''
+    print("save object...")
     if not os.path.exists('./object'):
-        os.makedirs('object')
-    np.save(f'./object/array-{filename}-data.npy', arr=arr)
+        os.makedirs('./object')
+    np.save(file, arr=arr)
     return
 
-def npy_object_load(filename: str) -> np.ndarray:
+def npy_object_load(file: str) -> np.ndarray:
     '''
-        ### file name: array-[filename].npy
+        ### file: input file path
     '''
-    print("load train dataset object...")
-    return np.load(file=f'./object/array-{filename}-data.npy')
+    print("load object...")
+    return np.load(file)

@@ -119,48 +119,58 @@ class Dataloader(pl.LightningDataModule):
         data = data.drop(columns=self.delete_columns)
         if stage_type == 'train':
             tmp1 = data[data['label']!=0]
-            tmp2 = data[data['label']==0].sample(300)
-            data = pd.concat([tmp1, tmp2])
+            tmp2 = data[data['label']==0].sample(500)
+            tmp3 = util.get_custom_data()
+            data = pd.concat([tmp1, tmp2, tmp3])
         
         # 텍스트 데이터를 전처리합니다.
         if self.augmentation:
-            filename = f'./object/array-{stage_type}-aug-data.npy'
+            filename = f'./object/{stage_type}-aug-data.npy'
         else:
-            filename = f'./object/array-{stage_type}-data.npy'
+            filename = f'./object/{stage_type}-data.npy'
             
         if os.path.exists(filename):
-            inputs = util.npy_object_load(stage_type).tolist()
+            inputs = util.npy_object_load(filename).tolist()
         else:
             inputs = self.tokenizing(data, stage)
         # inputs = self.tokenizing(data, stage)
 
         # 타겟 데이터가 없으면 빈 배열을 리턴합니다.
         targets = []
-        if stage == 'fit':
-            if self.augmentation:
-                try:
-                    limit = 0.2
-                    for label, binary_label in data[self.target_columns].values.tolist():
-                        if label != 0:  # -0.2 ~ -0.1
-                            rands = [(round(label-random.uniform(-limit, -0.1), 1), binary_label)
-                                        if label-limit > 0 else (label, binary_label) 
-                                        for _ in range(self.num_aug)
-                                    ]
-                            targets += [(label, binary_label)] + rands
-                        else:
-                            targets += [(label, binary_label) for _ in range(self.num_aug+1)]
-                except:
-                    targets = []
+      
+        if self.augmentation:
+            filename = f'./object/{stage_type}-aug-target.npy'
+        else:
+            filename = f'./object/{stage_type}-target.npy'
+            
+        if os.path.exists(filename):
+            targets = util.npy_object_load(filename).tolist()
+        else:
+            if stage == 'fit':
+                if self.augmentation:
+                    try:
+                        limit = 0.2
+                        for label, binary_label in data[self.target_columns].values.tolist():
+                            if label != 0:  # -0.2 ~ -0.1
+                                rands = [(round(label-random.uniform(-limit, -0.1), 1), binary_label)
+                                            if label-limit > 0 else (label, binary_label) 
+                                            for _ in range(self.num_aug)
+                                        ]
+                                targets += [(label, binary_label)] + rands
+                            else:
+                                targets += [(label, binary_label) for _ in range(self.num_aug+1)]
+                    except:
+                        targets = []
+                else:
+                    try:
+                        targets = list(map(tuple, data[self.target_columns].values.tolist()))
+                    except:
+                        targets = []
             else:
                 try:
-                    targets = list(map(tuple, data[self.target_columns].values.tolist()))
+                    targets =  list(map(tuple, data[self.target_columns].values.tolist()))
                 except:
                     targets = []
-        else:
-            try:
-                targets =  list(map(tuple, data[self.target_columns].values.tolist()))
-            except:
-                targets = []
         return inputs, targets
     
     def setup(self, stage='fit'):
@@ -172,10 +182,14 @@ class Dataloader(pl.LightningDataModule):
             # 학습데이터 준비
             stage_type='train'
             train_inputs, train_targets = self.preprocessing(train_data, stage, stage_type=stage_type)
+            
+            PATH = './object/'
             if self.augmentation:
-                util.npy_object_save(stage_type+'-aug', np.asarray(train_inputs))    
+                util.npy_object_save(PATH+stage_type+'-aug-data', np.asarray(train_inputs))    
+                util.npy_object_save(PATH+stage_type+'-aug-target', np.asarray(train_inputs))    
             else:
-                util.npy_object_save(stage_type, np.asarray(train_inputs))
+                util.npy_object_save(PATH+stage_type+'-data', np.asarray(train_inputs))
+                util.npy_object_save(PATH+stage_type+'-target', np.asarray(train_inputs))    
 
             # 검증데이터 준비
             val_inputs, val_targets = self.preprocessing(val_data, stage)
