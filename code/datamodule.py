@@ -123,7 +123,12 @@ class Dataloader(pl.LightningDataModule):
             data = pd.concat([tmp1, tmp2])
         
         # 텍스트 데이터를 전처리합니다.
-        if os.path.exists(f'./object/array-{stage_type}-data.npy'):
+        if self.augmentation:
+            filename = f'./object/array-{stage_type}-aug-data.npy'
+        else:
+            filename = f'./object/array-{stage_type}-data.npy'
+            
+        if os.path.exists(filename):
             inputs = util.npy_object_load(stage_type).tolist()
         else:
             inputs = self.tokenizing(data, stage)

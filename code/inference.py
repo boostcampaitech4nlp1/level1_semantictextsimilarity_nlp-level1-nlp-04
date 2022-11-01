@@ -11,7 +11,7 @@ from pytorch_lightning.callbacks import EarlyStopping
 import wandb
 
 from datamodule import Dataloader
-from model import RegressionModel
+from model import EnsambleModel, RegressionModel
 import pandas as pd
 
 
@@ -20,13 +20,13 @@ if __name__ == '__main__':
     # 터미널 실행 예시 : python3 run.py --batch_size=64 ...
     # 실행 시 '--batch_size=64' 같은 인자를 입력하지 않으면 default 값이 기본으로 실행됩니다
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model_name', default='klue/roberta-small', type=str)
+    parser.add_argument('--model_name', default='klue/roberta-base', type=str)
     parser.add_argument('--batch_size', default=16, type=int)
     parser.add_argument('--max_epoch', default=10, type=int)
     parser.add_argument('--shuffle', default=True)
     parser.add_argument('--norm', default=1, type=int)
+    parser.add_argument('--augmentation', default=False, type=bool)
     parser.add_argument('--num_aug', default=2, type=int)
-    parser.add_argument('--cls_weight', default=1e-3, type=float)
     parser.add_argument('--learning_rate', default=1e-5, type=float)
     parser.add_argument('--train_path', default='/opt/ml/data/train.csv')
     parser.add_argument('--dev_path', default='/opt/ml/data/dev.csv')
@@ -47,6 +47,7 @@ if __name__ == '__main__':
         args.dev_path,
         args.test_path, 
         args.predict_path,
+        args.augmentation,
         args.num_aug
     )
 
@@ -57,7 +58,7 @@ if __name__ == '__main__':
     
     # checkpoint load
     if args.checkpoint:
-        model = RegressionModel.load_from_checkpoint('./models/regression-model-epoch-end.ckpt')
+        model = EnsambleModel.load_from_checkpoint('./models/ensamble-model-epoch-end.ckpt')
     else:
         # 저장된 모델로 예측을 진행합니다.
         model = torch.load('/opt/ml/code/model-epoch-end.pt')

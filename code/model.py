@@ -146,25 +146,11 @@ class EnsambleModel(pl.LightningModule):
         self.distance_model = RegressionModel(model_name, lr, norm).load_from_checkpoint(distance_model_path)
         self.cls_model = ClassificationModel(model_name, lr).load_from_checkpoint(cls_model_path)
         
-        self.distance_model.freeze()
-        self.cls_model.freeze()
-        
-        self.fc_layers = torch.nn.Sequential(
-            torch.nn.Linear(1, 4),
-            torch.nn.ReLU(),
-            torch.nn.Linear(4, 1),
-        )
-        self.fc_layers.apply(self.weight_initialization)
-        
         if norm > 1:
             self.regression_loss = torch.nn.MSELoss()
         else:
             self.regression_loss = torch.nn.SmoothL1Loss()
         self.classification_loss = torch.nn.BCEWithLogitsLoss()
-    
-    def weight_initialization(self, module):
-        if isinstance(module, torch.nn.Linear):
-            torch.nn.init.ones_(module.weight)
     
     def forward(self, x):
         distance_model_out = self.distance_model.plm(x)['logits']
@@ -181,14 +167,14 @@ class EnsambleModel(pl.LightningModule):
         
         out = self(x)
         d_model_logits, c_model_logits = out['dist_model_out'], out['cls_model_out']
-        sum_logits = d_model_logits + c_model_logits
-    
-        out = self.fc_layers(sum_logits)  # (b, 1)
+
+        regression_loss = self.regression_loss(d_model_logits.squeeze(), labels.float())
+        classification_loss = self.classification_loss(c_model_logits.squeeze(), binary_labels)
         
-        loss = self.regression_loss(out.squeeze(), labels.float())
-        self.log('train_loss', loss)
+        total_loss = regression_loss + 1e-3 * classification_loss
+        self.log('train_loss', total_loss)
         
-        return loss
+        return total_loss
     
     def validation_step(self, batch, batch_idx):
         x, y = batch
@@ -196,14 +182,16 @@ class EnsambleModel(pl.LightningModule):
         
         out = self(x)
         d_model_logits, c_model_logits = out['dist_model_out'], out['cls_model_out']
-        sum_logits = d_model_logits + c_model_logits
-        out = self.fc_layers(sum_logits)  # (b, 1)
         
-        loss = self.regression_loss(out.squeeze(), labels.float())
-        self.log('val_loss', loss)
-        self.log('val_pearson', torchmetrics.functional.pearson_corrcoef(out.squeeze(), labels.float()))
+        regression_loss = self.regression_loss(d_model_logits.squeeze(), labels.float())
+        classification_loss = self.classification_loss(c_model_logits.squeeze(), binary_labels)
         
-        return loss
+        total_loss = regression_loss + 1e-3 * classification_loss
+        self.log('val_loss', total_loss)
+        self.log('val_pearson', torchmetrics.functional.pearson_corrcoef(d_model_logits.squeeze(), labels.float()))
+        self.log("val_f1", torchmetrics.functional.f1_score(c_model_logits.squeeze(), binary_labels.int()))
+        
+        return total_loss
     
     def test_step(self, batch, batch_idx):
         x, y = batch
@@ -211,10 +199,8 @@ class EnsambleModel(pl.LightningModule):
         
         out = self(x)
         d_model_logits, c_model_logits = out['dist_model_out'], out['cls_model_out']
-        sum_logits = d_model_logits + c_model_logits
-        out = self.fc_layers(sum_logits)  # (b, f)
-                
-        self.log('val_pearson', torchmetrics.functional.pearson_corrcoef(out.squeeze(), labels.float()))
+        
+        self.log('val_pearson', torchmetrics.functional.pearson_corrcoef(d_model_logits.squeeze(), labels.float()))
         return
     
     def predict_step(self, batch, batch_idx):
@@ -222,9 +208,8 @@ class EnsambleModel(pl.LightningModule):
         
         out = self(x)
         d_model_logits, c_model_logits = out['dist_model_out'], out['cls_model_out']
-        sum_logits = d_model_logits + c_model_logits
-        out = self.fc_layers(sum_logits)  # (b, f)        
-        return out.squeeze()
+        
+        return d_model_logits.squeeze()
     
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
