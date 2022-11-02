@@ -202,7 +202,7 @@ class Dataloader(pl.LightningDataModule):
             # 검증데이터 준비
             val_inputs, val_targets = self.preprocessing(val_data, stage)
 
-            if self.kfold < 1:
+            if self.kfold <= 1:
                 self.train_dataset = Dataset(train_inputs, train_targets)
                 self.val_dataset = Dataset(val_inputs, val_targets)
             else:

@@ -27,6 +27,7 @@ if __name__ == '__main__':
     parser.add_argument('--norm', default=1, type=int)
     parser.add_argument('--augmentation', default=False, type=bool)
     parser.add_argument('--num_aug', default=2, type=int)
+    parser.add_argument('--kfold', default=1, type=int)    
     parser.add_argument('--learning_rate', default=1e-5, type=float)
     parser.add_argument('--train_path', default='/opt/ml/data/train.csv')
     parser.add_argument('--dev_path', default='/opt/ml/data/dev.csv')
@@ -48,7 +49,8 @@ if __name__ == '__main__':
         args.test_path, 
         args.predict_path,
         args.augmentation,
-        args.num_aug
+        args.num_aug,
+        args.kfold
     )
 
     trainer = pl.Trainer(gpus=1, max_epochs=args.max_epoch, log_every_n_steps=1)
@@ -60,11 +62,11 @@ if __name__ == '__main__':
         regression_roberta_base_model_path='./models/regression-roberta-large-model-epoch-end.ckpt'
     )    
     else:
-        model = RegressionRobertaBaseModel.load_from_checkpoint('./models/regression-roberta-large-model-epoch-end.ckpt')
+        model = RegressionRobertaBaseModel.load_from_checkpoint('./models/regression-roberta-large-model-epoch-end-0.ckpt')
         
     predictions = trainer.predict(model=model, datamodule=dataloader)
 
-    predictions = list(round(float(i), 1) for i in torch.cat(predictions))
+    predictions = list(round(float(i), 2) for i in torch.cat(predictions))
     
     output = pd.read_csv('/opt/ml/data/sample_submission.csv')
     output['target'] = predictions

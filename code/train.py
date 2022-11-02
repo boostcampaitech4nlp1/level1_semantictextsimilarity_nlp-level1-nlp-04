@@ -9,6 +9,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.callbacks import EarlyStopping
 
 import wandb
+import pandas as pd
 
 from datamodule import Dataloader, Dataset
 from model import ClassificationModel, RegressionBertBaseModel, RegressionRobertaBaseModel, RegulationModel, RegressionModel
@@ -47,7 +48,6 @@ if __name__ == '__main__':
     wandb.init(project="project", name= f"{args.model_name}")
     wandb_logger = WandbLogger('project')
     
-    
     # dataloader
     dataloader = Dataloader(
         args.model_name, 
@@ -76,8 +76,8 @@ if __name__ == '__main__':
     # Trainer
     # regression_model = RegressionModel(args.model_name, args.learning_rate, args.norm)
     # regression_bert_base_model = RegressionBertBaseModel(args.learning_rate, args.norm)
-    regression_roberta_base_model = RegressionRobertaBaseModel(args.learning_rate, args.norm)
-    regression_roberta_base_model.load_from_checkpoint('./models/regression-roberta-large-model-epoch-end.ckpt')
+    # regression_roberta_base_model = RegressionRobertaBaseModel(args.learning_rate, args.norm)
+    # regression_roberta_base_model.load_from_checkpoint('./models/regression-roberta-large-model-epoch-end.ckpt')
 
     # regression_bert_base_trainer = pl.Trainer(
     #     accelerator='gpu',
@@ -91,11 +91,8 @@ if __name__ == '__main__':
     #     ]
     # )
     
-
-    
     gc.collect()
     torch.cuda.empty_cache()
-    
     
     # regression_trainer / train + validation
     # regression_bert_base_trainer.fit(model=regression_bert_base_model, datamodule=dataloader)
@@ -121,6 +118,8 @@ if __name__ == '__main__':
     
     div_samples_len = len(targets) // kfold
     for fold in range(kfold):
+        regression_roberta_base_model = RegressionRobertaBaseModel(args.learning_rate, args.norm)
+        
         train_inputs = inputs[:div_samples_len*fold] + inputs[div_samples_len*(fold+1):]
         train_targets = targets[:div_samples_len*fold] + targets[div_samples_len*(fold+1):]
 
@@ -152,6 +151,32 @@ if __name__ == '__main__':
 
         # test
         regression_roberta_base_trainer.test(model=regression_roberta_base_model, datamodule=dataloader)    
+    
+    predictions_sum = []
+    for fold in range(kfold):
+        regression_roberta_base_model = RegressionRobertaBaseModel(args.learning_rate, args.norm)
+        regression_roberta_base_model.load_from_checkpoint(f'./models/regression-roberta-large-model-epoch-end-{fold}.ckpt')
+        
+        trainer = pl.Trainer(
+            accelerator='gpu',
+            devices=1,
+            max_epochs=1,
+        )
+        
+        predictions = trainer.predict(model=regression_roberta_base_model, datamodule=dataloader)
+        if len(predictions_sum):
+            predictions = list(round(float(i), 1) for i in torch.cat(predictions))
+            predictions_sum = [predictions_sum[i] + predictions[i] for i in range(len(predictions_sum))]
+        else:
+            predictions_sum = list(round(float(i), 1) for i in torch.cat(predictions))
+    predictions_sum = [predictions_sum[i] / kfold for i in range(len(predictions_sum))]
+    
+    output = pd.read_csv('/opt/ml/data/sample_submission.csv')
+    output['target'] = predictions_sum
+    output.loc[output['target'] < 0, 'target'] = 0.
+    output.loc[output['target'] > 5, 'target'] = 5.    
+    output.to_csv('output.csv', index=False)
+
     
     # classification_model = ClassificationModel(args.model_name, args.learning_rate)
     # classification_trainer = pl.Trainer(
