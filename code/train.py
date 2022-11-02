@@ -71,7 +71,7 @@ if __name__ == '__main__':
     
     # Trainer
     # regression_model = RegressionModel(args.model_name, args.learning_rate, args.norm)
-    regression_bert_base_model = RegressionBertBaseModel(args.learning_rate, args.norm)
+    # regression_bert_base_model = RegressionBertBaseModel(args.learning_rate, args.norm)
     regression_roberta_base_model = RegressionRobertaBaseModel(args.learning_rate, args.norm)
     
     regression_bert_base_trainer = pl.Trainer(
@@ -99,11 +99,11 @@ if __name__ == '__main__':
     )
     
     # regression_trainer / train + validation
-    regression_bert_base_trainer.fit(model=regression_bert_base_model, datamodule=dataloader)
-    regression_bert_base_trainer.save_checkpoint('./models/regression-bert-base-model-epoch-end.ckpt')
+    # regression_bert_base_trainer.fit(model=regression_bert_base_model, datamodule=dataloader)
+    # regression_bert_base_trainer.save_checkpoint('./models/regression-bert-base-model-epoch-end.ckpt')
     
-    # test
-    regression_bert_base_trainer.test(model=regression_bert_base_model, datamodule=dataloader)
+    # # test
+    # regression_bert_base_trainer.test(model=regression_bert_base_model, datamodule=dataloader)
     
     
     # regression_trainer / train + validation

@@ -11,7 +11,11 @@ def get_custom_data():
         'new_sentence_1': 'sentence_1',
         'new_sentence_2': 'sentence_2'
     }, inplace=True)
-    return df
+    
+    tmp1 = df[df['label']!=0]
+    tmp2 = df[df['label']==0].head(500)
+    data = pd.concat([tmp1, tmp2])
+    return data
 
 def get_usable_char(text: str):
     ''' 
