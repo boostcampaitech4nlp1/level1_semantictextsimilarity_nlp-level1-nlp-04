@@ -10,8 +10,9 @@ from pytorch_lightning.callbacks import EarlyStopping
 
 import wandb
 
-from datamodule import Dataloader
+from datamodule import Dataloader, Dataset
 from model import ClassificationModel, RegressionBertBaseModel, RegressionRobertaBaseModel, RegulationModel, RegressionModel
+import util
 
 import gc
 
@@ -23,12 +24,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--stage', default='fit', type=str)         # fit / test / predict
     parser.add_argument('--model_name', default='klue/roberta-base', type=str)
-    parser.add_argument('--batch_size', default=8, type=int)
-    parser.add_argument('--max_epoch', default=10, type=int)
+    parser.add_argument('--batch_size', default=16, type=int)
+    parser.add_argument('--max_epoch', default=5, type=int)
     parser.add_argument('--shuffle', default=True)
-    parser.add_argument('--norm', default=1, type=int)
+    parser.add_argument('--norm', default=2, type=int)
     parser.add_argument('--augmentation', default=False, type=bool)  # 데이터 증강 하기 싫으면 False
     parser.add_argument('--num_aug', default=2, type=int)           # 한 문장 당 데이터 증강 개수
+    parser.add_argument('--kfold', default=5, type=int)           
     parser.add_argument('--learning_rate', default=1e-5, type=float)
     parser.add_argument('--train_path', default='/opt/ml/data/train.csv')
     parser.add_argument('--dev_path', default='/opt/ml/data/dev.csv')
@@ -36,14 +38,14 @@ if __name__ == '__main__':
     parser.add_argument('--predict_path', default='/opt/ml/data/test.csv')
     args = parser.parse_args(args=[])
 
-    # try:
-    #     wandb.login(key='4c0a01eaa2bd589d64c5297c5bc806182d126350')
-    # except:
-    #     anony = "must"
-    #     print('If you want to use your W&B account, go to Add-ons -> Secrets and provide your W&B access token. Use the Label name as wandb_api. \nGet your W&B access token from here: https://wandb.ai/authorize')
+    try:
+        wandb.login(key='4c0a01eaa2bd589d64c5297c5bc806182d126350')
+    except:
+        anony = "must"
+        print('If you want to use your W&B account, go to Add-ons -> Secrets and provide your W&B access token. Use the Label name as wandb_api. \nGet your W&B access token from here: https://wandb.ai/authorize')
 
-    # wandb.init(project="project", name= f"{args.model_name}")
-    # wandb_logger = WandbLogger('project')
+    wandb.init(project="project", name= f"{args.model_name}")
+    wandb_logger = WandbLogger('project')
     
     
     # dataloader
@@ -56,7 +58,8 @@ if __name__ == '__main__':
         args.test_path, 
         args.predict_path,
         args.augmentation,
-        args.num_aug
+        args.num_aug,
+        args.kfold
     )
     
     checkpoint_callback = ModelCheckpoint(
@@ -74,30 +77,25 @@ if __name__ == '__main__':
     # regression_model = RegressionModel(args.model_name, args.learning_rate, args.norm)
     # regression_bert_base_model = RegressionBertBaseModel(args.learning_rate, args.norm)
     regression_roberta_base_model = RegressionRobertaBaseModel(args.learning_rate, args.norm)
+    regression_roberta_base_model.load_from_checkpoint('./models/regression-roberta-large-model-epoch-end.ckpt')
 
-    regression_bert_base_trainer = pl.Trainer(
-        accelerator='gpu',
-        devices=1,
-        max_epochs=args.max_epoch,
-        # logger=wandb_logger,
-        log_every_n_steps=1,
-        callbacks=[
-            # checkpoint_callback,
-            earlystopping_callback
-        ]
-    )
+    # regression_bert_base_trainer = pl.Trainer(
+    #     accelerator='gpu',
+    #     devices=1,
+    #     max_epochs=args.max_epoch,
+    #     logger=wandb_logger,
+    #     log_every_n_steps=1,
+    #     callbacks=[
+    #         # checkpoint_callback,
+    #         earlystopping_callback
+    #     ]
+    # )
     
-    regression_roberta_base_trainer = pl.Trainer(
-        accelerator='gpu',
-        devices=1,
-        max_epochs=args.max_epoch,
-        # logger=wandb_logger,
-        log_every_n_steps=1,
-        callbacks=[
-            # checkpoint_callback,
-            earlystopping_callback
-        ]
-    )
+
+    
+    gc.collect()
+    torch.cuda.empty_cache()
+    
     
     # regression_trainer / train + validation
     # regression_bert_base_trainer.fit(model=regression_bert_base_model, datamodule=dataloader)
@@ -107,17 +105,53 @@ if __name__ == '__main__':
     # regression_bert_base_trainer.test(model=regression_bert_base_model, datamodule=dataloader)
     
     
-    gc.collect()
-    torch.cuda.empty_cache()
-    
-    # regression_trainer / train + validation
-    regression_roberta_base_trainer.fit(model=regression_roberta_base_model, datamodule=dataloader)
-    regression_roberta_base_trainer.save_checkpoint('./models/regression-roberta-base-model-epoch-end.ckpt')
 
-    # test
-    regression_roberta_base_trainer.test(model=regression_roberta_base_model, datamodule=dataloader)    
+    # regression_trainer / train + validation
+    # regression_roberta_base_trainer.fit(model=regression_roberta_base_model, datamodule=dataloader)
+    # regression_roberta_base_trainer.save_checkpoint('./models/regression-roberta-large-model-epoch-end.ckpt')
+
+    # # test
+    # regression_roberta_base_trainer.test(model=regression_roberta_base_model, datamodule=dataloader)    
     
     
+    
+    kfold = args.kfold
+    inputs = util.pkl_object_load('./object/train-data')
+    targets = util.pkl_object_load('./object/train-target')
+    
+    div_samples_len = len(targets) // kfold
+    for fold in range(kfold):
+        train_inputs = inputs[:div_samples_len*fold] + inputs[div_samples_len*(fold+1):]
+        train_targets = targets[:div_samples_len*fold] + targets[div_samples_len*(fold+1):]
+
+        val_inputs = inputs[div_samples_len*fold:div_samples_len*(fold+1)]
+        val_targets = targets[div_samples_len*fold:div_samples_len*(fold+1)]
+        
+        dataloader.train_dataset = Dataset(train_inputs, train_targets)
+        dataloader.val_dataset = Dataset(val_inputs, val_targets)
+        
+        print("-" * 70)
+        print(f"[fold {fold}]")
+        
+        regression_roberta_base_trainer = pl.Trainer(
+            accelerator='gpu',
+            devices=1,
+            precision=16,
+            max_epochs=args.max_epoch,
+            logger=wandb_logger,
+            log_every_n_steps=1,
+            callbacks=[
+                # checkpoint_callback,
+                earlystopping_callback
+            ]
+        )        
+        
+        # regression_trainer / train + validation
+        regression_roberta_base_trainer.fit(model=regression_roberta_base_model, datamodule=dataloader)
+        regression_roberta_base_trainer.save_checkpoint(f'./models/regression-roberta-large-model-epoch-end-{fold}.ckpt')
+
+        # test
+        regression_roberta_base_trainer.test(model=regression_roberta_base_model, datamodule=dataloader)    
     
     # classification_model = ClassificationModel(args.model_name, args.learning_rate)
     # classification_trainer = pl.Trainer(

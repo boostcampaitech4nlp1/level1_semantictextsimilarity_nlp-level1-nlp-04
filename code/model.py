@@ -103,8 +103,8 @@ class RegressionRobertaBaseModel(pl.LightningModule):
         if self.norm > 1:
             self.distance_loss = torch.nn.MSELoss()
         else:
-            # self.distance_loss = torch.nn.SmoothL1Loss()  
-            self.distance_loss = torch.nn.L1Loss()  
+            self.distance_loss = torch.nn.SmoothL1Loss()  
+            # self.distance_loss = torch.nn.L1Loss()  
     
     def mean_pooling(self, model_output, attention_mask):
         token_embeddings = model_output['last_hidden_state']        #First element of model_output contains all token embeddings
@@ -165,6 +165,8 @@ class RegressionRobertaBaseModel(pl.LightningModule):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
         return optimizer
     
+    
+    
 class RegressionBertBaseModel(pl.LightningModule):
     def __init__(self, lr, norm):
         '''
@@ -184,7 +186,7 @@ class RegressionBertBaseModel(pl.LightningModule):
         # 사용할 모델을 호출합니다.
         if self.pooling:
             self.plm = transformers.AutoModel.from_pretrained(self.model_name)
-            self.classification = torch.nn.Linear(1024, 1)
+            self.fc = torch.nn.Linear(768, 1)
         else:
             self.plm = transformers.AutoModelForSequenceClassification.from_pretrained(
                 pretrained_model_name_or_path=self.model_name, num_labels=1)
@@ -194,6 +196,14 @@ class RegressionBertBaseModel(pl.LightningModule):
             self.distance_loss = torch.nn.MSELoss()
         else:
             self.distance_loss = torch.nn.SmoothL1Loss()  
+            
+    # reference : https://stackoverflow.com/questions/65083581/how-to-compute-mean-max-of-huggingface-transformers-bert-token-embeddings-with-a
+    def mean_pooling(self, model_output, attention_mask):
+        token_embeddings = model_output['last_hidden_state']        #First element of model_output contains all token embeddings
+        
+        input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+        return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+
         
     def forward(self, x):
         model_input = {
@@ -205,7 +215,7 @@ class RegressionBertBaseModel(pl.LightningModule):
         if self.pooling:
             model_output = self.plm(**model_input)
             out = self.mean_pooling(model_output, model_input['attention_mask'])
-            out = self.classification(out)
+            out = self.fc(out)
         else:
             out = self.plm(model_input['input_ids'])['logits']    
         return out
@@ -407,8 +417,8 @@ class EnsambleModel(pl.LightningModule):
         self.regression_roberta_base_model.freeze()
     
     def forward(self, x):
-        bert_base_logits = self.regression_bert_base_model.plm(x)['logits']
-        roberta_base_logits = self.regression_roberta_base_model.plm(x)['logits']
+        bert_base_logits = self.regression_bert_base_model(x)
+        roberta_base_logits = self.regression_roberta_base_model(x)
         
         logits = (bert_base_logits + roberta_base_logits) / 2.
         return logits

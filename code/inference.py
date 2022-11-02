@@ -57,10 +57,10 @@ if __name__ == '__main__':
     if args.ensamble:
         model = EnsambleModel(
         regression_bert_base_model_path='./models/regression-bert-base-model-epoch-end.ckpt',
-        regression_roberta_base_model_path='./models/regression-roberta-base-model-epoch-end.ckpt'
+        regression_roberta_base_model_path='./models/regression-roberta-large-model-epoch-end.ckpt'
     )    
     else:
-        model = RegressionBertBaseModel.load_from_checkpoint('./models/regression-bert-base-model-epoch-end.ckpt')
+        model = RegressionRobertaBaseModel.load_from_checkpoint('./models/regression-roberta-large-model-epoch-end.ckpt')
         
     predictions = trainer.predict(model=model, datamodule=dataloader)
 

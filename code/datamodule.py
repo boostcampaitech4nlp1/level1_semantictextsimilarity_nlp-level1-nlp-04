@@ -48,7 +48,8 @@ class Dataloader(pl.LightningDataModule):
                  test_path, 
                  predict_path,
                  augmentation,
-                 num_aug
+                 num_aug,
+                 kfold
         ):
         super().__init__()
         self.model_name = model_name
@@ -62,6 +63,7 @@ class Dataloader(pl.LightningDataModule):
         
         self.augmentation = augmentation
         self.num_aug = num_aug
+        self.kfold = kfold
 
         self.train_dataset = None
         self.val_dataset = None
@@ -69,7 +71,10 @@ class Dataloader(pl.LightningDataModule):
         self.predict_dataset = None
         
         # self.spacing = Spacing()
-        self.tokenizer = transformers.AutoTokenizer.from_pretrained(model_name, max_length=128)
+        self.tokenizer = transformers.AutoTokenizer.from_pretrained(
+            'klue/bert-base', 
+            max_length=128
+        )
         
         # main data
         self.target_columns = ['label', 'binary-label']
@@ -119,11 +124,11 @@ class Dataloader(pl.LightningDataModule):
         return data
 
     def preprocessing(self, data, stage, stage_type=''):
-        if stage_type == 'train':
-            tmp1 = data[data['label']!=0]
-            tmp2 = data[data['label']==0].head(500)
-            tmp3 = util.get_custom_data()
-            data = pd.concat([tmp1, tmp2, tmp3])
+        # if stage_type == 'train':
+        #     tmp1 = data[data['label']!=0]
+        #     tmp2 = data[data['label']==0].head(500)
+        #     tmp3 = util.get_custom_data()
+        #     data = pd.concat([tmp1, tmp2, tmp3])
         data = data.drop(columns=self.delete_columns)
         
         # 텍스트 데이터를 전처리합니다.
@@ -197,9 +202,16 @@ class Dataloader(pl.LightningDataModule):
             # 검증데이터 준비
             val_inputs, val_targets = self.preprocessing(val_data, stage)
 
-            # train 데이터만 shuffle을 적용해줍니다, 필요하다면 val, test 데이터에도 shuffle을 적용할 수 있습니다
-            self.train_dataset = Dataset(train_inputs, train_targets)
-            self.val_dataset = Dataset(val_inputs, val_targets)
+            if self.kfold < 1:
+                self.train_dataset = Dataset(train_inputs, train_targets)
+                self.val_dataset = Dataset(val_inputs, val_targets)
+            else:
+                assert self.train_dataset is not None, "cannot load data object"
+                assert self.val_dataset is not None, "cannot load data object"
+                
+                print("k-fold train dataset langth : ", len(self.train_dataset))
+                print("k-fold val dataset langth : ", len(self.val_dataset))
+                
         else:
             # 평가데이터 준비
             test_data = pd.read_csv(self.test_path)
