@@ -26,9 +26,11 @@ class RegressionModel(pl.LightningModule):
         if self.norm > 1:
             self.distance_loss = torch.nn.MSELoss()
         else:
+            # self.distance_loss = torch.nn.L1Loss()  
             self.distance_loss = torch.nn.SmoothL1Loss()  
         
     def forward(self, x):
+        # x: dictionary
         x = self.plm(x)['logits']
         return x
 
@@ -72,6 +74,7 @@ class RegressionModel(pl.LightningModule):
         # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=3000, gamma=0.5)
         return optimizer
     
+    
 class RegressionRobertaBaseModel(pl.LightningModule):
     def __init__(self, lr, norm):
         '''
@@ -82,26 +85,50 @@ class RegressionRobertaBaseModel(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters()
 
-        self.model_name = 'klue/roberta-base'
+        self.model_name = 'klue/roberta-large'
         self.lr = lr
         self.norm = norm
+        
+        self.pooling = True
 
         # 사용할 모델을 호출합니다.
-        self.plm = transformers.AutoModelForSequenceClassification.from_pretrained(
-            pretrained_model_name_or_path=self.model_name, num_labels=1)
+        if self.pooling:
+            self.plm = transformers.AutoModel.from_pretrained(self.model_name)
+            self.classification = torch.nn.Linear(1024, 1)
+        else:
+            self.plm = transformers.AutoModelForSequenceClassification.from_pretrained(
+                pretrained_model_name_or_path=self.model_name, num_labels=1)
         
         # loss
         if self.norm > 1:
             self.distance_loss = torch.nn.MSELoss()
         else:
-            self.distance_loss = torch.nn.SmoothL1Loss()  
+            # self.distance_loss = torch.nn.SmoothL1Loss()  
+            self.distance_loss = torch.nn.L1Loss()  
+    
+    def mean_pooling(self, model_output, attention_mask):
+        token_embeddings = model_output['last_hidden_state']        #First element of model_output contains all token embeddings
         
+        input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+        return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+    
     def forward(self, x):
-        x = self.plm(x)['logits']
-        return x
+        model_input = {
+            'input_ids': x[0],
+            'attention_mask': x[1],
+            'token_type_ids': x[2]
+        }
+        
+        if self.pooling:
+            model_output = self.plm(**model_input)
+            out = self.mean_pooling(model_output, model_input['attention_mask'])
+            out = self.classification(out)
+        else:
+            out = self.plm(model_input['input_ids'])['logits']    
+        return out
 
     def training_step(self, batch, batch_idx):
-        x, y = batch
+        x, y = batch    # x: (input_ids, attention_mask, token_type_ids)
         labels, binary_labels = y[:, 0], y[:, 1]
         
         logits = self(x)
@@ -151,10 +178,16 @@ class RegressionBertBaseModel(pl.LightningModule):
         self.model_name = 'klue/bert-base'
         self.lr = lr
         self.norm = norm
+        
+        self.pooling = True
 
         # 사용할 모델을 호출합니다.
-        self.plm = transformers.AutoModelForSequenceClassification.from_pretrained(
-            pretrained_model_name_or_path=self.model_name, num_labels=1)
+        if self.pooling:
+            self.plm = transformers.AutoModel.from_pretrained(self.model_name)
+            self.classification = torch.nn.Linear(1024, 1)
+        else:
+            self.plm = transformers.AutoModelForSequenceClassification.from_pretrained(
+                pretrained_model_name_or_path=self.model_name, num_labels=1)
         
         # loss
         if self.norm > 1:
@@ -163,8 +196,19 @@ class RegressionBertBaseModel(pl.LightningModule):
             self.distance_loss = torch.nn.SmoothL1Loss()  
         
     def forward(self, x):
-        x = self.plm(x)['logits']
-        return x
+        model_input = {
+            'input_ids': x[0],
+            'attention_mask': x[1],
+            'token_type_ids': x[2]
+        }
+        
+        if self.pooling:
+            model_output = self.plm(**model_input)
+            out = self.mean_pooling(model_output, model_input['attention_mask'])
+            out = self.classification(out)
+        else:
+            out = self.plm(model_input['input_ids'])['logits']    
+        return out
 
     def training_step(self, batch, batch_idx):
         x, y = batch

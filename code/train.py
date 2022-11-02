@@ -13,6 +13,7 @@ import wandb
 from datamodule import Dataloader
 from model import ClassificationModel, RegressionBertBaseModel, RegressionRobertaBaseModel, RegulationModel, RegressionModel
 
+import gc
 
 
 if __name__ == '__main__':
@@ -22,7 +23,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--stage', default='fit', type=str)         # fit / test / predict
     parser.add_argument('--model_name', default='klue/roberta-base', type=str)
-    parser.add_argument('--batch_size', default=16, type=int)
+    parser.add_argument('--batch_size', default=8, type=int)
     parser.add_argument('--max_epoch', default=10, type=int)
     parser.add_argument('--shuffle', default=True)
     parser.add_argument('--norm', default=1, type=int)
@@ -40,7 +41,7 @@ if __name__ == '__main__':
     # except:
     #     anony = "must"
     #     print('If you want to use your W&B account, go to Add-ons -> Secrets and provide your W&B access token. Use the Label name as wandb_api. \nGet your W&B access token from here: https://wandb.ai/authorize')
-    
+
     # wandb.init(project="project", name= f"{args.model_name}")
     # wandb_logger = WandbLogger('project')
     
@@ -73,7 +74,7 @@ if __name__ == '__main__':
     # regression_model = RegressionModel(args.model_name, args.learning_rate, args.norm)
     # regression_bert_base_model = RegressionBertBaseModel(args.learning_rate, args.norm)
     regression_roberta_base_model = RegressionRobertaBaseModel(args.learning_rate, args.norm)
-    
+
     regression_bert_base_trainer = pl.Trainer(
         accelerator='gpu',
         devices=1,
@@ -106,10 +107,13 @@ if __name__ == '__main__':
     # regression_bert_base_trainer.test(model=regression_bert_base_model, datamodule=dataloader)
     
     
+    gc.collect()
+    torch.cuda.empty_cache()
+    
     # regression_trainer / train + validation
     regression_roberta_base_trainer.fit(model=regression_roberta_base_model, datamodule=dataloader)
     regression_roberta_base_trainer.save_checkpoint('./models/regression-roberta-base-model-epoch-end.ckpt')
-    
+
     # test
     regression_roberta_base_trainer.test(model=regression_roberta_base_model, datamodule=dataloader)    
     

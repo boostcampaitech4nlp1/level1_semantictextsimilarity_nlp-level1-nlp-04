@@ -3,6 +3,8 @@ import os
 import numpy as np
 import pandas as pd
 
+import pickle as pkl
+
 def get_custom_data():
     filename = './data/new_train.csv'
     df = pd.read_csv(filename)
@@ -39,19 +41,24 @@ def get_only_korean(text: str):
     '''
     return re.sub(r'[^\uAC00-\uD7A30-9a-zA-Z\s]', '', text)
 
-def npy_object_save(file: str, arr: np.ndarray) -> None:
+def pkl_object_save(file: str, obj) -> None:
     '''
         ### file: input file path
     '''
     print("save object...")
     if not os.path.exists('./object'):
         os.makedirs('./object')
-    np.save(file, arr=arr)
+    
+    with open(file+'.pkl', 'wb+') as f:
+        pkl.dump(obj, f)
     return
 
-def npy_object_load(file: str) -> np.ndarray:
+def pkl_object_load(file: str) -> np.ndarray:
     '''
         ### file: input file path
     '''
     print("load object...")
-    return np.load(file)
+    obj = None
+    with open(file+'.pkl', 'rb+') as f:
+        obj = pkl.load(f)
+    return obj

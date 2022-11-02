@@ -24,11 +24,15 @@ class Dataset(torch.utils.data.Dataset):
     # 학습 및 추론 과정에서 데이터를 1개씩 꺼내오는 곳
     def __getitem__(self, idx):
         # 정답이 있다면 else문을, 없다면 if문을 수행합니다
+        input_ids = torch.tensor(self.inputs[idx]['input_ids'])
+        attention_mask = torch.tensor(self.inputs[idx]['attention_mask'])
+        token_type_ids = torch.tensor(self.inputs[idx]['token_type_ids'])
+        
         if len(self.targets) == 0:
-            return torch.tensor(self.inputs[idx])
+            return (input_ids, attention_mask, token_type_ids)
         else:
-            return torch.tensor(self.inputs[idx]), torch.tensor(self.targets[idx])
-
+            return (input_ids, attention_mask, token_type_ids), torch.tensor(self.targets[idx])
+                
     # 입력하는 개수만큼 데이터를 사용합니다
     def __len__(self):
         return len(self.inputs)
@@ -65,7 +69,7 @@ class Dataloader(pl.LightningDataModule):
         self.predict_dataset = None
         
         # self.spacing = Spacing()
-        self.tokenizer = transformers.AutoTokenizer.from_pretrained(model_name, max_length=160)
+        self.tokenizer = transformers.AutoTokenizer.from_pretrained(model_name, max_length=128)
         
         # main data
         self.target_columns = ['label', 'binary-label']
@@ -88,7 +92,6 @@ class Dataloader(pl.LightningDataModule):
                         util.get_usable_char(item[text_column])
                         for text_column in self.text_columns
                     ]
-                
                 if self.augmentation:
                     if len(sentences[0]) > 1 and len(sentences[1]) > 1:
                         augment_sentence_1 = augmentation.EDA(sentences[0], num_aug=self.num_aug)
@@ -100,37 +103,37 @@ class Dataloader(pl.LightningDataModule):
                     for s1, s2 in zip(augment_sentence_1, augment_sentence_2):
                         text = s1 + '[SEP]' + s2
                         outputs = self.tokenizer(text, add_special_tokens=True, padding='max_length', truncation=True)
-                        data.append(outputs['input_ids'])
+                        data.append(outputs)    # outputs['input_ids']
                 else:
                     text = '[SEP]'.join(
                         [item[text_column] for text_column in self.text_columns]
                     )
                     outputs = self.tokenizer(text, add_special_tokens=True, padding='max_length', truncation=True)
-                    data.append(outputs['input_ids'])
+                    data.append(outputs)    # outputs['input_ids']
             else:
                 text = '[SEP]'.join(
                     [util.get_only_korean(item[text_column]) for text_column in self.text_columns]
                 )
                 outputs = self.tokenizer(text, add_special_tokens=True, padding='max_length', truncation=True)
-                data.append(outputs['input_ids'])    
+                data.append(outputs)        # outputs['input_ids']
         return data
 
     def preprocessing(self, data, stage, stage_type=''):
-        data = data.drop(columns=self.delete_columns)
         if stage_type == 'train':
             tmp1 = data[data['label']!=0]
             tmp2 = data[data['label']==0].head(500)
-            tmp3 = data
+            tmp3 = util.get_custom_data()
             data = pd.concat([tmp1, tmp2, tmp3])
+        data = data.drop(columns=self.delete_columns)
         
         # 텍스트 데이터를 전처리합니다.
         if self.augmentation:
-            filename = f'./object/{stage_type}-aug-data.npy'
+            filename = f'./object/{stage_type}-aug-data'
         else:
-            filename = f'./object/{stage_type}-data.npy'
+            filename = f'./object/{stage_type}-data'
             
-        if os.path.exists(filename):
-            inputs = util.npy_object_load(filename).tolist()
+        if os.path.exists(filename+'.pkl'):
+            inputs = util.pkl_object_load(filename)
         else:
             inputs = self.tokenizing(data, stage)
         # inputs = self.tokenizing(data, stage)
@@ -139,12 +142,12 @@ class Dataloader(pl.LightningDataModule):
         targets = []
       
         if self.augmentation:
-            filename = f'./object/{stage_type}-aug-target.npy'
+            filename = f'./object/{stage_type}-aug-target'
         else:
-            filename = f'./object/{stage_type}-target.npy'
+            filename = f'./object/{stage_type}-target'
             
-        if os.path.exists(filename):
-            targets = util.npy_object_load(filename).tolist()
+        if os.path.exists(filename+'.pkl'):
+            targets = util.pkl_object_load(filename)
         else:
             if stage == 'fit':
                 if self.augmentation:
@@ -152,8 +155,8 @@ class Dataloader(pl.LightningDataModule):
                         limit = 0.2
                         for label, binary_label in data[self.target_columns].values.tolist():
                             if label != 0:  # -0.2 ~ -0.1
-                                rands = [(round(label-random.uniform(-limit, -0.1), 1), binary_label)
-                                            if label-limit > 0 else (label, binary_label) 
+                                rands = [(round(label+random.uniform(-limit, -0.1), 1), binary_label)
+                                            if label+limit > 0 else (label, binary_label) 
                                             for _ in range(self.num_aug)
                                         ]
                                 targets += [(label, binary_label)] + rands
@@ -185,11 +188,11 @@ class Dataloader(pl.LightningDataModule):
             
             PATH = './object/'
             if self.augmentation:
-                util.npy_object_save(PATH+stage_type+'-aug-data', np.asarray(train_inputs))    
-                util.npy_object_save(PATH+stage_type+'-aug-target', np.asarray(train_targets))    
+                util.pkl_object_save(PATH+stage_type+'-aug-data', train_inputs)    
+                util.pkl_object_save(PATH+stage_type+'-aug-target', train_targets)    
             else:
-                util.npy_object_save(PATH+stage_type+'-data', np.asarray(train_inputs))
-                util.npy_object_save(PATH+stage_type+'-target', np.asarray(train_targets))    
+                util.pkl_object_save(PATH+stage_type+'-data', train_inputs)
+                util.pkl_object_save(PATH+stage_type+'-target', train_targets)
 
             # 검증데이터 준비
             val_inputs, val_targets = self.preprocessing(val_data, stage)
@@ -208,7 +211,7 @@ class Dataloader(pl.LightningDataModule):
             self.predict_dataset = Dataset(predict_inputs, [])
 
     def train_dataloader(self):
-        return torch.utils.data.DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=self.shuffle, num_workers=8)
+        return torch.utils.data.DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=self.shuffle)
 
     def val_dataloader(self):
         return torch.utils.data.DataLoader(self.val_dataset, batch_size=self.batch_size)
