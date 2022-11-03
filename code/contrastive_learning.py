@@ -155,6 +155,8 @@ class Model(pl.LightningModule):
         feature = self.dropout(feature)
         outputs = self.fc(feature)
         return outputs.view(-1), last_hidden_states.view(last_hidden_states.size()[0], last_hidden_states.size()[1]*last_hidden_states.size()[2])
+        # view 함수 대신 linear layer 추가해서 차원 맞춰줘도 될듯..?
+        
 
     def contrastive_loss(self, embedding, label, temp=0.3):
         """calculate the contrastive loss
