@@ -21,7 +21,7 @@ wandb.init(project="boostcamp_sts_competition")
 
 from time import gmtime, strftime
 
-import sys
+import re
 
 class Dataset(torch.utils.data.Dataset):
     def __init__(self, data, model_name):
@@ -145,16 +145,19 @@ class Model(pl.LightningModule):
     def feature(self,inputs):
         outputs = self.plm(**inputs)
         last_hidden_states = outputs[0]
+        # print(inputs['attention_mask'])
         feature = self.mean_pooling(outputs, inputs['attention_mask'])
         return feature, last_hidden_states
 
     def forward(self, x):
-        feature, last_hidden_states = self.feature(x)
+        feature_, last_hidden_states = self.feature(x)
         # print(last_hidden_states.size())
         # sys.exit()
-        feature = self.dropout(feature)
+        feature = self.dropout(feature_)
         outputs = self.fc(feature)
-        return outputs.view(-1), last_hidden_states.view(last_hidden_states.size()[0], last_hidden_states.size()[1]*last_hidden_states.size()[2])
+        # return outputs.view(-1), last_hidden_states.view(last_hidden_states.size()[0], last_hidden_states.size()[1]*last_hidden_states.size()[2])
+        # return outputs.view(-1), last_hidden_states[:, 0, :]
+        return outputs.view(-1), feature_
         # view 함수 대신 linear layer 추가해서 차원 맞춰줘도 될듯..?
         
 
@@ -253,7 +256,7 @@ if __name__ == '__main__':
     # parser.add_argument('--dev_path', default='../data/dev.csv')
     parser.add_argument('--data', default='all')
     parser.add_argument('--test_path', default='../data/dev.csv')
-    parser.add_argument('--predict_path', default='../data/test.csv')
+    parser.add_argument('--predict_path', default='/opt/ml/data/test.csv')
     args = parser.parse_args(args=[])
 
     print(args.data)
@@ -269,8 +272,8 @@ if __name__ == '__main__':
         train_path = '../data/slack_train.csv'
         dev_path = '../data/slack_dev.csv'
     elif args.data == 'all':
-        train_path = '../data/train.csv'
-        dev_path = '../data/dev.csv'
+        train_path = '/opt/ml/data/train.csv'
+        dev_path = '/opt/ml/data/dev.csv'
     elif args.data == 'all_new':
         train_path = '../data/new_train.csv'
         dev_path = '../data/dev.csv'
@@ -286,7 +289,7 @@ if __name__ == '__main__':
     # wandb logger 설정
     wandb_logger = WandbLogger(name=f'{args.model_name}+{args.batch_size}+{args.learning_rate}', project="boostcamp_sts_competition")
 
-    checkpoint_callback = ModelCheckpoint(dirpath=f"/opt/ml/models/roberta-large-contrastive/{args.data}", save_top_k=2, monitor="val_loss")
+    checkpoint_callback = ModelCheckpoint(dirpath=f"/opt/ml/models/roberta-large-contrastive/{args.data}_2", save_top_k=2, monitor="val_loss")
     # gpu가 없으면 'gpus=0'을, gpu가 여러개면 'gpus=4'처럼 사용하실 gpu의 개수를 입력해주세요
     trainer = pl.Trainer(accelerator='gpu', devices=1, max_epochs=args.max_epoch, log_every_n_steps=1, logger=wandb_logger, precision=16, callbacks=[checkpoint_callback])
 
@@ -340,3 +343,22 @@ if __name__ == '__main__':
     print('<< BEST CHECKPOINT PATH >>')
     print(checkpoint_callback.best_model_path)
     print()
+
+    # [added] : 예측값과 정답 차이 확인하기
+
+    model = Model.load_from_checkpoint(checkpoint_path=checkpoint_callback.best_model_path).eval()
+
+    predictions = trainer.predict(model=model, datamodule=dataloader) # dev 데이터셋으로 predict
+    preds = torch.cat(predictions)
+    wrongs = []
+
+    for i, pred in enumerate(preds):
+        # test dataset에서 i번째에 해당하는 input값과 target값을 가져옵니다
+        input_ids, target = dataloader.test_dataset.__getitem__(i)
+        # 예측값과 정답값이 다를 경우 기록합니다.
+        if round(pred.item()) - round(target.item()) >= 0.5:
+            wrongs.append([dataloader.tokenizer.decode(input_ids).replace(' [PAD]', ''), pred.item(), target.item()])
+
+    wrong_df = pd.DataFrame(wrongs, columns=['text', 'pred', 'target'])
+
+    wrong_df.to_csv(f'/opt/ml/code/wrongs/{re.sub("/", "-", args.model_name)}_{strftime("%m-%d-%H-%M", gmtime())}_wrong.csv')

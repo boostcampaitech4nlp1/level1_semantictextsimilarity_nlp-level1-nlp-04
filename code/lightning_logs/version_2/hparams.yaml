@@ -1,0 +1,3 @@
+lr: 1.0e-05
+model_name: klue/roberta-large
+wd: 0.0001

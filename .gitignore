@@ -3,3 +3,9 @@ boostcamp_level_1/
 
 # wandb
 wandb/
+
+# dataset
+data/*.csv
+
+# lightning log
+lightning_logs/
