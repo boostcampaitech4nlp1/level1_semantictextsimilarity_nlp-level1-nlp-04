@@ -73,7 +73,7 @@ $ python main.py --augment [value]
 
 ### **augment**
 - `--model_name` : huggingface model name (str)
-- `--batcsh_size` : batch_size (int)
+- `--batch_size` : batch_size (int)
 - `--max_epoch` : epoch_size (int)
 - `--shuffle` : shuffle dataset (bool)
 - `--learning_rate` : learning rate (float)
