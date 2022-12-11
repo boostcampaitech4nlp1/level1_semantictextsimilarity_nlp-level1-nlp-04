@@ -16,8 +16,8 @@
 |이름|id|역할|
 |:--:|:--:|--|
 |이용우|[@wooy0ng](https://github.com/wooy0ng)|협업 리딩, 데이터 전처리, 데이터 후처리|
-|강혜빈|[@hyeb](https://github.com/hyeb)|모델링 (모델 튜닝, 결과 분석)
 |권현정|[@malinmalin2](https://github.com/malinmalin2)|데이터 전처리, 데이터 후처리|
+|강혜빈|[@hyeb](https://github.com/hyeb)|모델링 (모델 튜닝, 결과 분석)
 |백인진|[@eenzeenee](https://github.com/eenzeenee)|모델링 (모델 실험의 이론적 근거 마련)|
 |이준원|[@jun9603](https://github.com/jun9603)|모델링 (모델 튜닝, 결과 분석, 앙상블)
 
